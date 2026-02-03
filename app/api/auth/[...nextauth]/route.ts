@@ -88,6 +88,7 @@ export const authOptions: AuthOptions = {
       // 1. 初回ログイン時
       if (account && user) {
         return {
+          ...token, // 🔴 重要: これを追加！元々のtoken情報(画像URLなど)を引き継ぎます
           accessToken: account.access_token,
           expiresAt: (account.expires_at ?? 0) * 1000,
           refreshToken: account.refresh_token,
@@ -108,9 +109,13 @@ export const authOptions: AuthOptions = {
       // 型定義拡張により、これらのプロパティは型安全にアクセス可能
       session.accessToken = token.accessToken;
       
-      // session.error は型定義に追加されているため、anyキャストは不要
       if (token.error) {
         session.error = token.error;
+      }
+
+      // 🔴 重要: トークンにある画像情報をセッションのユーザー情報に確実に渡す
+      if (session.user && token.picture) {
+        session.user.image = token.picture;
       }
       
       return session;
