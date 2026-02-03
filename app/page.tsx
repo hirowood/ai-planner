@@ -30,7 +30,6 @@ type ApiChatResponse = {
 };
 
 // --- 型ガード (Type Guards) ---
-// データが正しい形をしているか、実行時にチェックする関数群
 
 function isEventDate(obj: unknown): obj is EventDate {
   if (typeof obj !== 'object' || obj === null) return false;
@@ -45,7 +44,6 @@ function isCalendarEvent(obj: unknown): obj is CalendarEvent {
     typeof e.summary === 'string' &&
     typeof e.start === 'object' &&
     typeof e.end === 'object'
-    // 必要に応じて厳密さを調整
   );
 }
 
@@ -72,7 +70,7 @@ function AppContent() {
 
   useEffect(() => {
     if (session) {
-      void fetchEvents(); // voidでPromiseを無視することを明示
+      void fetchEvents();
     }
   }, [session]);
 
@@ -81,7 +79,6 @@ function AppContent() {
       const res = await fetch('/api/calendar/get');
       if (res.ok) {
         const data: unknown = await res.json();
-        // ここで型ガードを使って安全にキャスト
         if (isCalendarEventArray(data)) {
           setEvents(data);
         } else {
@@ -113,13 +110,12 @@ function AppContent() {
         }),
       });
       
-      const data = await response.json() as unknown; // 一旦unknownで受ける
+      const data = await response.json() as unknown;
       
       if (!response.ok) {
         throw new Error('API Error');
       }
 
-      // 型ガードは簡易的ですが、最低限 reply があるか確認
       if (typeof data !== 'object' || data === null || !('reply' in data)) {
         throw new Error('Invalid API response format');
       }
@@ -129,12 +125,10 @@ function AppContent() {
       
       setMessages((prev) => [...prev, { role: 'assistant', content: aiReply }]);
 
-      // JSONパース部分の安全性向上
       const jsonMatch = aiReply.match(/```json\s*([\s\S]*?)\s*```/);
       if (jsonMatch && jsonMatch[1]) {
         try {
           const parsed: unknown = JSON.parse(jsonMatch[1]);
-          // ここでも型ガードを使用
           if (isCalendarEventArray(parsed)) {
             setPendingPlan(parsed);
           } else {
@@ -236,12 +230,34 @@ function AppContent() {
     <div className="flex h-screen bg-gray-50 text-gray-800">
       {/* 左サイド */}
       <div className="flex flex-col w-2/3 border-r bg-white">
-        <header className="p-4 border-b flex justify-between items-center bg-white">
+        <header className="p-4 border-b flex justify-between items-center bg-white h-16">
           <h1 className="text-xl font-bold text-blue-600">AI Planner 🗓️</h1>
+          
+          {/* 🔴 修正箇所: ユーザー情報表示エリア */}
           {!session ? (
-            <button onClick={() => signIn("google")} className="bg-blue-600 text-white px-4 py-2 rounded text-sm">Googleログイン</button>
+            <button onClick={() => signIn("google")} className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 transition">
+              Googleログイン
+            </button>
           ) : (
-            <button onClick={() => signOut()} className="text-xs text-red-500">ログアウト ({session.user?.name})</button>
+            <div className="flex items-center gap-3">
+              {/* アイコン画像 */}
+              {session.user?.image && (
+                <img 
+                  src={session.user.image} 
+                  alt={session.user.name || "User Icon"} 
+                  className="w-9 h-9 rounded-full border border-gray-200 shadow-sm"
+                />
+              )}
+              {/* 名前とログアウトボタン */}
+              <div className="flex flex-col items-end">
+                <span className="text-xs font-bold text-gray-700">
+                  {session.user?.name}
+                </span>
+                <button onClick={() => signOut()} className="text-[10px] text-red-500 hover:text-red-700 hover:underline">
+                  ログアウト
+                </button>
+              </div>
+            </div>
           )}
         </header>
 
