@@ -54,7 +54,6 @@ function AppContent() {
     }
   };
 
-  // 共通の送信処理（手入力もボタン入力もこれを呼ぶ）
   const handleSendMessage = async (text: string) => {
     if (!text.trim() || isLoading) return;
 
@@ -71,13 +70,18 @@ function AppContent() {
         body: JSON.stringify({ 
           message: userMessage.content, 
           history: messages,
-          schedule: events // AIに今の予定を渡す
+          schedule: events
         }),
       });
       
       const data = await response.json() as { reply: string };
-      const aiReply = data.reply;
       
+      // エラーハンドリング
+      if (!response.ok) {
+         throw new Error('API Error');
+      }
+
+      const aiReply = data.reply;
       setMessages((prev) => [...prev, { role: 'assistant', content: aiReply }]);
 
       const jsonMatch = aiReply.match(/```json\s*([\s\S]*?)\s*```/);
@@ -91,21 +95,18 @@ function AppContent() {
       }
 
     } catch (error) {
-      alert('エラーが発生しました');
+      alert('エラーが発生しました。');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // フォーム送信時
   const onFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     handleSendMessage(input);
   };
 
-  // 🌟 「細分化」ボタンを押したときの処理
   const handleSubdivide = (event: CalendarEvent) => {
-    // 日時の読みやすい文字列を作成
     let dateInfo = "日時不明";
     if (event.start.dateTime) {
       const d = new Date(event.start.dateTime);
@@ -113,8 +114,6 @@ function AppContent() {
     } else if (event.start.date) {
       dateInfo = `${event.start.date} (終日)`;
     }
-
-    // AIへの命令文を自動作成して送信
     const prompt = `予定「${event.summary}」（${dateInfo}）を、この時間枠内で終わるように具体的なサブタスクに細分化してください。`;
     handleSendMessage(prompt);
   };
@@ -166,15 +165,12 @@ function AppContent() {
   const todayEvents = events.filter(isToday);
   const upcomingEvents = events.filter((e) => !isToday(e));
 
-  // 🌟 EventCardに「細分化」ボタンを追加
   const EventCard = ({ event, isToday }: { event: CalendarEvent; isToday: boolean }) => (
     <div className={`p-3 rounded-lg shadow-sm border-l-4 group relative ${isToday ? 'bg-blue-50 border-blue-600' : 'bg-white border-gray-400'}`}>
       <div className={`text-xs font-bold mb-1 ${isToday ? 'text-blue-600' : 'text-gray-500'}`}>
         {formatEventInfo(event.start, event.end)}
       </div>
       <div className="font-semibold text-gray-800 mb-1">{event.summary}</div>
-      
-      {/* ホバー時または常に表示する細分化ボタン */}
       <button 
         onClick={() => handleSubdivide(event)}
         className="mt-2 text-xs bg-white border border-blue-200 text-blue-600 px-2 py-1 rounded hover:bg-blue-50 transition-colors flex items-center gap-1"
@@ -219,8 +215,18 @@ function AppContent() {
 
         <footer className="p-4 border-t">
           <form onSubmit={onFormSubmit} className="flex gap-2">
-            <input type="text" className="flex-1 p-3 border rounded" placeholder="例: 明日の10時の予定を詳しく決めて" value={input} onChange={(e) => setInput(e.target.value)} disabled={isLoading} />
-            <button type="submit" disabled={isLoading} className="bg-blue-600 text-white px-6 rounded font-bold">送信</button>
+            <input 
+              type="text" 
+              name="message" // 修正: 名前を追加
+              id="chat-input" // 修正: IDを追加
+              autoComplete="off" // 修正: 自動入力をOFF
+              className="flex-1 p-3 border rounded focus:ring-2 focus:ring-blue-500 outline-none" 
+              placeholder="例: 明日の10時の予定を詳しく決めて" 
+              value={input} 
+              onChange={(e) => setInput(e.target.value)} 
+              disabled={isLoading} 
+            />
+            <button type="submit" disabled={isLoading} className="bg-blue-600 text-white px-6 rounded font-bold hover:bg-blue-700 disabled:opacity-50">送信</button>
           </form>
         </footer>
       </div>
