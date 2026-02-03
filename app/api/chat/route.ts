@@ -1,37 +1,43 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../auth/[...nextauth]/route"; // 認証設定を読み込み
+import { authOptions } from "../auth/[...nextauth]/route";
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
 
 type Message = { role: 'user' | 'assistant'; content: string };
 type ScheduleItem = { summary: string; start: { dateTime: string }; end: { dateTime: string } };
 
+// エラーオブジェクトの型定義（GoogleGenerativeAIのエラー構造に合わせて定義）
+type GenAIError = {
+  status?: number;
+  message?: string;
+};
+
 export async function POST(req: Request) {
-  // 🔒 セキュリティチェック: ログインしていないアクセスをここで弾く
   const session = await getServerSession(authOptions);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized: ログインが必要です" }, { status: 401 });
   }
 
   try {
-    const body = await req.json();
-    const { message, history, schedule } = body as { 
+    const body = await req.json() as { 
       message: string; 
       history: Message[];
       schedule?: ScheduleItem[];
     };
+    
+    const { message, history, schedule } = body;
 
-    // 🛡️ 入力チェック: メッセージが空、または長すぎる場合の対策
     if (!message || message.trim().length === 0) {
       return NextResponse.json({ error: "メッセージが空です" }, { status: 400 });
     }
-    if (message.length > 2000) { // 異常に長い入力を防ぐ
+    if (message.length > 2000) {
       return NextResponse.json({ error: "メッセージが長すぎます" }, { status: 400 });
     }
 
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    
     const now = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
 
     const systemPrompt = `
@@ -88,8 +94,8 @@ WhatとWhyが明確になったら、次に以下を質問してください。
           parts: [{ text: systemPrompt + "\n\nこのペルソナになりきって対話を開始してください。" }],
         },
         ...history
-          .filter(msg => msg.content && msg.content.trim() !== "")
-          .map((msg: Message) => ({
+          .filter((msg) => msg.content && msg.content.trim() !== "")
+          .map((msg) => ({
             role: msg.role === 'assistant' ? 'model' : 'user',
             parts: [{ text: msg.content }],
           })),
@@ -101,9 +107,19 @@ WhatとWhyが明確になったら、次に以下を質問してください。
 
     return NextResponse.json({ reply: response });
 
-  } catch (error) {
-    // 🛡️ エラー情報の隠蔽: ユーザーには詳細なスタックトレースを見せない
-    console.error("Server Error:", error);
+  } catch (error: unknown) {
+    console.error("Server Error Details:", error);
+
+    // エラー型をアサーションして安全にプロパティにアクセス
+    const genAIError = error as GenAIError;
+
+    // 429エラー(制限超過)の場合のメッセージ処理
+    if (genAIError.status === 429 || genAIError.message?.includes('429')) {
+      return NextResponse.json({ 
+        error: "AIの利用制限（1日20回程度）に達しました。しばらく時間を置いてから再度お試しください。" 
+      }, { status: 429 });
+    }
+
     return NextResponse.json({ error: "処理中にエラーが発生しました。" }, { status: 500 });
   }
 }
