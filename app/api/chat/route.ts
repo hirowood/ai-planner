@@ -1,5 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../auth/[...nextauth]/route"; // 認証設定を読み込み
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
 
@@ -7,6 +9,12 @@ type Message = { role: 'user' | 'assistant'; content: string };
 type ScheduleItem = { summary: string; start: { dateTime: string }; end: { dateTime: string } };
 
 export async function POST(req: Request) {
+  // 🔒 セキュリティチェック: ログインしていないアクセスをここで弾く
+  const session = await getServerSession(authOptions);
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized: ログインが必要です" }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
     const { message, history, schedule } = body as { 
@@ -15,8 +23,15 @@ export async function POST(req: Request) {
       schedule?: ScheduleItem[];
     };
 
-    
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    // 🛡️ 入力チェック: メッセージが空、または長すぎる場合の対策
+    if (!message || message.trim().length === 0) {
+      return NextResponse.json({ error: "メッセージが空です" }, { status: 400 });
+    }
+    if (message.length > 2000) { // 異常に長い入力を防ぐ
+      return NextResponse.json({ error: "メッセージが長すぎます" }, { status: 400 });
+    }
+
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const now = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
 
     const systemPrompt = `
@@ -46,7 +61,6 @@ WhatとWhyが明確になったら、次に以下を質問してください。
 
 **フェーズ4: 判定基準の合意（Judgment）**
 提案したプランに対し、**「ゴール判定の基準（どうやって成果を確認するか）」**をあなたから提案し、ユーザーに合意を求めてください。
-例：「理解度チェックのために、最後にQiita記事の下書きを1つ書くことを判定基準にしませんか？」
 
 **フェーズ5: カレンダー登録（Finalization）**
 ユーザーがプランと判定基準に合意したら、**最後に必ず以下のJSON形式**を出力してカレンダー登録を促してください。
@@ -64,8 +78,6 @@ WhatとWhyが明確になったら、次に以下を質問してください。
 \`\`\`
 
 ### 注意点
-- 一度に全ての質問をせず、フェーズごとに会話のキャッチボールをしてください。
-- ユーザーが最初から情報を提示している場合は、済んだフェーズを飛ばして次のフェーズに進んでください。
 - JSONの日付は必ず正しいISO 8601形式（YYYY-MM-DDTHH:mm:ss+09:00）にしてください。
 `;
 
@@ -75,9 +87,8 @@ WhatとWhyが明確になったら、次に以下を質問してください。
           role: "user",
           parts: [{ text: systemPrompt + "\n\nこのペルソナになりきって対話を開始してください。" }],
         },
-        // 🔴 修正箇所2: 空のメッセージを除外するフィルターを追加
         ...history
-          .filter(msg => msg.content && msg.content.trim() !== "") // 中身があるものだけ通す
+          .filter(msg => msg.content && msg.content.trim() !== "")
           .map((msg: Message) => ({
             role: msg.role === 'assistant' ? 'model' : 'user',
             parts: [{ text: msg.content }],
@@ -91,8 +102,8 @@ WhatとWhyが明確になったら、次に以下を質問してください。
     return NextResponse.json({ reply: response });
 
   } catch (error) {
-    console.error("AI Error Details:", error);
-    // エラー内容を詳しく返すようにしておくとデバッグしやすいです
-    return NextResponse.json({ error: "AIとの通信に失敗しました" }, { status: 500 });
+    // 🛡️ エラー情報の隠蔽: ユーザーには詳細なスタックトレースを見せない
+    console.error("Server Error:", error);
+    return NextResponse.json({ error: "処理中にエラーが発生しました。" }, { status: 500 });
   }
 }
