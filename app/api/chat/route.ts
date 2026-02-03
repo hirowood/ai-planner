@@ -31,7 +31,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "メッセージが長すぎます" }, { status: 400 });
     }
 
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     const now = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
 
     const systemPrompt = `
