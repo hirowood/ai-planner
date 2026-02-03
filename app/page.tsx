@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { SessionProvider, useSession, signIn, signOut } from "next-auth/react";
 
-// 型定義
+// --- 型定義 ---
+
 type Message = {
   role: 'user' | 'assistant';
   content: string;
@@ -23,6 +24,37 @@ type CalendarEvent = {
   colorId?: string;
 };
 
+type ApiChatResponse = {
+  reply: string;
+  error?: string;
+};
+
+// --- 型ガード (Type Guards) ---
+// データが正しい形をしているか、実行時にチェックする関数群
+
+function isEventDate(obj: unknown): obj is EventDate {
+  if (typeof obj !== 'object' || obj === null) return false;
+  const d = obj as Record<string, unknown>;
+  return typeof d.dateTime === 'string' || typeof d.date === 'string' || d.dateTime === undefined || d.date === undefined;
+}
+
+function isCalendarEvent(obj: unknown): obj is CalendarEvent {
+  if (typeof obj !== 'object' || obj === null) return false;
+  const e = obj as Record<string, unknown>;
+  return (
+    typeof e.summary === 'string' &&
+    typeof e.start === 'object' &&
+    typeof e.end === 'object'
+    // 必要に応じて厳密さを調整
+  );
+}
+
+function isCalendarEventArray(obj: unknown): obj is CalendarEvent[] {
+  return Array.isArray(obj) && obj.every(isCalendarEvent);
+}
+
+// --- コンポーネント実装 ---
+
 function AppContent() {
   const { data: session } = useSession();
   
@@ -39,18 +71,25 @@ function AppContent() {
   }, [messages]);
 
   useEffect(() => {
-    if (session) fetchEvents();
+    if (session) {
+      void fetchEvents(); // voidでPromiseを無視することを明示
+    }
   }, [session]);
 
   const fetchEvents = async () => {
     try {
       const res = await fetch('/api/calendar/get');
       if (res.ok) {
-        const data = await res.json() as CalendarEvent[];
-        setEvents(data);
+        const data: unknown = await res.json();
+        // ここで型ガードを使って安全にキャスト
+        if (isCalendarEventArray(data)) {
+          setEvents(data);
+        } else {
+          console.error("API returned invalid event data format");
+        }
       }
-    } catch (err) {
-      console.error(err);
+    } catch (err: unknown) {
+      console.error("Failed to fetch events:", err);
     }
   };
 
@@ -74,27 +113,40 @@ function AppContent() {
         }),
       });
       
-      const data = await response.json() as { reply: string };
+      const data = await response.json() as unknown; // 一旦unknownで受ける
       
-      // エラーハンドリング
       if (!response.ok) {
-         throw new Error('API Error');
+        throw new Error('API Error');
       }
 
-      const aiReply = data.reply;
+      // 型ガードは簡易的ですが、最低限 reply があるか確認
+      if (typeof data !== 'object' || data === null || !('reply' in data)) {
+        throw new Error('Invalid API response format');
+      }
+
+      const typedData = data as ApiChatResponse;
+      const aiReply = typedData.reply;
+      
       setMessages((prev) => [...prev, { role: 'assistant', content: aiReply }]);
 
+      // JSONパース部分の安全性向上
       const jsonMatch = aiReply.match(/```json\s*([\s\S]*?)\s*```/);
-      if (jsonMatch) {
+      if (jsonMatch && jsonMatch[1]) {
         try {
-          const plan = JSON.parse(jsonMatch[1]) as CalendarEvent[];
-          setPendingPlan(plan);
-        } catch (e) {
-          console.error("JSON parse error", e);
+          const parsed: unknown = JSON.parse(jsonMatch[1]);
+          // ここでも型ガードを使用
+          if (isCalendarEventArray(parsed)) {
+            setPendingPlan(parsed);
+          } else {
+            console.warn("AI generated JSON but it did not match CalendarEvent[] schema.");
+          }
+        } catch (e: unknown) {
+          console.error("JSON parse error:", e);
         }
       }
 
-    } catch (error) {
+    } catch (error: unknown) {
+      console.error("Chat Error:", error);
       alert('エラーが発生しました。');
     } finally {
       setIsLoading(false);
@@ -103,7 +155,7 @@ function AppContent() {
 
   const onFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    handleSendMessage(input);
+    void handleSendMessage(input);
   };
 
   const handleSubdivide = (event: CalendarEvent) => {
@@ -115,7 +167,7 @@ function AppContent() {
       dateInfo = `${event.start.date} (終日)`;
     }
     const prompt = `予定「${event.summary}」（${dateInfo}）を、この時間枠内で終わるように具体的なサブタスクに細分化してください。`;
-    handleSendMessage(prompt);
+    void handleSendMessage(prompt);
   };
 
   const handleAddToCalendar = async () => {
@@ -132,12 +184,12 @@ function AppContent() {
       if (res.ok) {
         alert("カレンダーに追加しました！🎉");
         setPendingPlan(null);
-        fetchEvents();
+        void fetchEvents();
       } else {
         alert("追加に失敗しました...");
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: unknown) {
+      console.error("Add Calendar Error:", e);
       alert("エラーが発生しました");
     }
   };
@@ -217,9 +269,9 @@ function AppContent() {
           <form onSubmit={onFormSubmit} className="flex gap-2">
             <input 
               type="text" 
-              name="message" // 修正: 名前を追加
-              id="chat-input" // 修正: IDを追加
-              autoComplete="off" // 修正: 自動入力をOFF
+              name="message"
+              id="chat-input"
+              autoComplete="off"
               className="flex-1 p-3 border rounded focus:ring-2 focus:ring-blue-500 outline-none" 
               placeholder="例: 明日の10時の予定を詳しく決めて" 
               value={input} 
@@ -236,13 +288,13 @@ function AppContent() {
         <div>
           <h2 className="text-lg font-bold mb-3 text-blue-700">📅 今日の予定</h2>
           <div className="space-y-3">
-            {todayEvents.map(e => <EventCard key={e.id || Math.random().toString()} event={e} isToday={true} />)}
+            {todayEvents.map(e => <EventCard key={e.id || crypto.randomUUID()} event={e} isToday={true} />)}
           </div>
         </div>
         <div>
           <h2 className="text-lg font-bold mb-3 text-gray-600">🗓️ 今後の予定</h2>
           <div className="space-y-3">
-            {upcomingEvents.map(e => <EventCard key={e.id || Math.random().toString()} event={e} isToday={false} />)}
+            {upcomingEvents.map(e => <EventCard key={e.id || crypto.randomUUID()} event={e} isToday={false} />)}
           </div>
         </div>
       </div>

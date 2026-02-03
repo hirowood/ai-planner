@@ -1,16 +1,18 @@
 import NextAuth, { DefaultSession } from "next-auth"
 import { JWT } from "next-auth/jwt"
 
-// Sessionの型を拡張して accessToken を追加
 declare module "next-auth" {
   interface Session {
-    accessToken?: string
+    accessToken?: string;
+    error?: string; // 👈 ここに追加することで、session.error が正当な型になります
   }
 }
 
-// JWTの型を拡張して accessToken を追加
 declare module "next-auth/jwt" {
   interface JWT {
-    accessToken?: string
+    accessToken?: string;
+    refreshToken?: string;
+    expiresAt?: number;
+    error?: string;
   }
 }

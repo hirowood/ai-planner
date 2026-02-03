@@ -2,35 +2,143 @@ import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { authOptions } from "../../auth/[...nextauth]/route";
 
+// --- 型定義 ---
+
+// Google Calendar APIが要求する最小限の構造定義
+type GoogleDate = { dateTime: string } | { date: string };
+
+type CalendarEventInput = {
+  summary: string;
+  description?: string;
+  start: GoogleDate;
+  end: GoogleDate;
+  colorId?: string;
+};
+
+type CreateResult = {
+  summary: string;
+  status: 'success' | 'error';
+  data?: unknown;
+  error?: string;
+};
+
+// --- Type Guards (型ガード) ---
+
+function isGoogleDate(arg: unknown): arg is GoogleDate {
+  if (typeof arg !== 'object' || arg === null) return false;
+  const d = arg as Record<string, unknown>;
+  return typeof d.dateTime === 'string' || typeof d.date === 'string';
+}
+
+function isCalendarEventInput(arg: unknown): arg is CalendarEventInput {
+  if (typeof arg !== 'object' || arg === null) return false;
+  const e = arg as Record<string, unknown>;
+  return (
+    typeof e.summary === 'string' &&
+    isGoogleDate(e.start) &&
+    isGoogleDate(e.end)
+  );
+}
+
+function isEventArray(arg: unknown): arg is CalendarEventInput[] {
+  return Array.isArray(arg) && arg.every(isCalendarEventInput);
+}
+
+// --- メイン処理 ---
+
 export async function POST(req: Request) {
+  // 🔒 1. 認証チェック
   const session = await getServerSession(authOptions);
 
-  if (!session || !session.accessToken) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session || !session.user || !session.accessToken) {
+    return NextResponse.json({ error: "Unauthorized: ログインが必要です" }, { status: 401 });
   }
 
   try {
-    const { events } = await req.json(); // フロントエンドから予定のリストを受け取る
-
-    // 複数の予定を順番に登録する
-    const results = [];
-    for (const event of events) {
-      const response = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(event),
-      });
-      const data = await response.json();
-      results.push(data);
+    // 🛡️ 2. JSONパースと構造検証
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch (e) {
+      return NextResponse.json({ error: "Invalid JSON format" }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true, results });
+    if (typeof body !== 'object' || body === null || !('events' in body)) {
+      return NextResponse.json({ error: "Missing 'events' field" }, { status: 400 });
+    }
 
-  } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: "Failed to create events" }, { status: 500 });
+    const rawEvents = (body as { events: unknown }).events;
+
+    // 配列であるか、中身が正しいかチェック
+    if (!isEventArray(rawEvents)) {
+      return NextResponse.json({ error: "Invalid event data structure" }, { status: 400 });
+    }
+
+    // 🛡️ 3. 制約チェック (DoS対策/API制限対策)
+    // 一度に大量の登録リクエストが来たら拒否する
+    if (rawEvents.length > 20) {
+      return NextResponse.json({ error: "一度に登録できるイベントは20件までです" }, { status: 400 });
+    }
+
+    // 🔄 4. 登録処理ループ
+    // 1件ずつ処理し、成功/失敗を個別に記録する
+    const results: CreateResult[] = [];
+    let successCount = 0;
+
+    for (const event of rawEvents) {
+      try {
+        const response = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(event),
+        });
+
+        const data: unknown = await response.json();
+
+        if (!response.ok) {
+          // Google APIからのエラーレスポンス
+          const errorMsg = (data as { error?: { message?: string } })?.error?.message || "Unknown API Error";
+          console.error(`Failed to create event "${event.summary}":`, errorMsg);
+          
+          results.push({
+            summary: event.summary,
+            status: 'error',
+            error: errorMsg
+          });
+        } else {
+          // 成功
+          successCount++;
+          results.push({
+            summary: event.summary,
+            status: 'success',
+            data: data
+          });
+        }
+      } catch (fetchError: unknown) {
+        // 通信エラーなど
+        console.error(`Network error for event "${event.summary}":`, fetchError);
+        results.push({
+          summary: event.summary,
+          status: 'error',
+          error: "Network or Server Error"
+        });
+      }
+    }
+
+    // ✅ 5. 結果返却
+    // 一部失敗しても、全体としては 200 OK (または 207 Multi-Status) を返し、
+    // フロントエンド側で「○件成功、×件失敗」と表示させるのが親切です。
+    return NextResponse.json({
+      success: successCount > 0,
+      message: `${rawEvents.length}件中 ${successCount}件 の登録に成功しました`,
+      results,
+    });
+
+  } catch (error: unknown) {
+    console.error("Critical Server Error:", error);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
