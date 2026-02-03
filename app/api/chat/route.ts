@@ -15,10 +15,10 @@ export async function POST(req: Request) {
       schedule?: ScheduleItem[];
     };
 
+    
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     const now = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
 
-    // 🌟 ユーザーの希望するフローを完璧に定義したプロンプト
     const systemPrompt = `
 あなたは、ユーザーの目標達成を支援する「戦略的タスク・アーキテクト」です。
 単にスケジュールを埋めるのではなく、**「What（何をするか）」と「Why（なぜするか）」**を重視し、質の高い計画を作成してください。
@@ -60,7 +60,6 @@ WhatとWhyが明確になったら、次に以下を質問してください。
     "end": { "dateTime": "ISO形式" },
     "colorId": "11"
   }
-  // ...サブタスク
 ]
 \`\`\`
 
@@ -76,10 +75,13 @@ WhatとWhyが明確になったら、次に以下を質問してください。
           role: "user",
           parts: [{ text: systemPrompt + "\n\nこのペルソナになりきって対話を開始してください。" }],
         },
-        ...history.map((msg: Message) => ({
-          role: msg.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: msg.content }],
-        })),
+        // 🔴 修正箇所2: 空のメッセージを除外するフィルターを追加
+        ...history
+          .filter(msg => msg.content && msg.content.trim() !== "") // 中身があるものだけ通す
+          .map((msg: Message) => ({
+            role: msg.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: msg.content }],
+          })),
       ],
     });
 
@@ -89,7 +91,8 @@ WhatとWhyが明確になったら、次に以下を質問してください。
     return NextResponse.json({ reply: response });
 
   } catch (error) {
-    console.error("AI Error:", error);
+    console.error("AI Error Details:", error);
+    // エラー内容を詳しく返すようにしておくとデバッグしやすいです
     return NextResponse.json({ error: "AIとの通信に失敗しました" }, { status: 500 });
   }
 }
