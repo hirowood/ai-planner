@@ -4,7 +4,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
-    setupFiles: ["./test/setup/no-network.ts"],
+    setupFiles: ["./test/setup/env.ts", "./test/setup/no-network.ts"],
     include: ["**/*.test.ts"],
     exclude: ["node_modules/**", ".next/**"],
   },
