@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "verification_id": "EXP-002-A11Y-AUTOMATED-001",
+  "requirement_id": "PRD-2026-09-29-app-measure-improve-loop-US6",
+  "lane": "A11Y_AUTOMATED",
+  "result": "PASS",
+  "maturity": "RUNTIME_OBSERVED",
+  "expected": {
+    "violations": 0,
+    "rules": "axe-core wcag2a/wcag2aa/wcag21a/wcag21aa/wcag22aa",
+    "fixture": "Preview of commit 6062449, logged-out screen (/)"
+  },
+  "actual": {
+    "violations": 0,
+    "incomplete": 0,
+    "passes": 21,
+    "tool": "axe-core 4.11.1",
+    "url": "https://ai-planner-f2ze05qto-hirowoods-projects.vercel.app/",
+    "observed_at": "2026-09-29T15:03:26.324Z"
+  },
+  "evidence": [
+    {
+      "kind": "axe-raw-json",
+      "ref": "evidence/EXP-002/a11y-axe.json",
+      "sha256": "5e4d78a72647cd3791ea507c3b99d5a910145818cf0157c40cbc71124c317506"
+    },
+    {
+      "kind": "screenshot",
+      "ref": "evidence/EXP-002/a11y-screen.png",
+      "sha256": "cd5fc43bd4ebbc4076e7194498ee1b975f0e5325a4e2f796a8134789d8cb77dd"
+    }
+  ],
+  "finding_ids": [
+    "EXP-002-F1-page-title-is-nextjs-default"
+  ],
+  "notes": "Logged-out screen only: the chat UI changed by EXP-002 needs a Google login and is not covered by this automated lane. Manual lanes are not replaced by this PASS. Finding F1: the tab title is the Next.js default 'Create Next App'; axe document-title passes (a title exists) but WCAG 2.4.2 expects a descriptive title. Out of scope for EXP-002."
+}
