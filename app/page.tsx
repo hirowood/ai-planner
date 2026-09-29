@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { SessionProvider, useSession, signIn, signOut } from "next-auth/react";
+import { formatPerfLine } from "../lib/perf";
 
 // --- 型定義 ---
 
@@ -63,6 +64,8 @@ function AppContent() {
   const [pendingPlan, setPendingPlan] = useState<CalendarEvent[] | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // 初回表示の計測 (measure → improve ループ M0): 最初の予定取得の完了時に 1 回だけ出す
+  const initialLoadLogged = useRef(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -77,6 +80,11 @@ function AppContent() {
   const fetchEvents = async () => {
     try {
       const res = await fetch('/api/calendar/get');
+      if (!initialLoadLogged.current) {
+        initialLoadLogged.current = true;
+        // ブラウザの performance.now() はナビゲーション開始からの経過時間。値だけを出す
+        console.log(formatPerfLine({ route: "page:/ initial-calendar", status: res.status, total_ms: performance.now() }));
+      }
       if (res.ok) {
         const data: unknown = await res.json();
         if (isCalendarEventArray(data)) {

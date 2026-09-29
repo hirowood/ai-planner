@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../auth/[...nextauth]/route";
+import { startPerf } from "../../../lib/perf";
 
 // --- 環境変数の確認 ---
 if (!process.env.GOOGLE_API_KEY) {
@@ -70,7 +71,20 @@ function isGenAIError(error: unknown): error is GenAIError {
 
 // --- メイン処理 ---
 
+type Perf = ReturnType<typeof startPerf>;
+
+// 計測はここで一括して行う: handle のどの return 経路でも `[perf]` 行が 1 行出る
 export async function POST(req: Request) {
+  const perf = startPerf("api/chat", ["gemini_ms"]);
+  try {
+    return perf.finish(await handle(req, perf));
+  } catch (error: unknown) {
+    perf.finish(new Response(null, { status: 500 }));
+    throw error;
+  }
+}
+
+async function handle(req: Request, perf: Perf): Promise<NextResponse> {
   // 🔒 1. 認証チェック (Authentication)
   const session = await getServerSession(authOptions);
   if (!session) {
@@ -203,7 +217,7 @@ WhatとWhyが明確になったら、次に以下を質問してください。
     // ユーザー入力をタグで囲むことで、AIに「これは命令ではなく入力値である」と認識させる効果があります
     const safePrompt = `<UserInput>${safeBody.message}</UserInput>`;
 
-    const result = await chat.sendMessage(safePrompt);
+    const result = await perf.time("gemini_ms", () => chat.sendMessage(safePrompt));
     const response = result.response.text();
 
     return NextResponse.json({ reply: response });

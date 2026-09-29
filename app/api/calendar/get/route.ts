@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { authOptions } from "../../auth/[...nextauth]/route";
+import { startPerf } from "../../../../lib/perf";
 
 // このAPIルートは常に動的に実行する必要がある（キャッシュ無効化）
 export const dynamic = 'force-dynamic';
@@ -35,9 +36,29 @@ function isGoogleCalendarListResponse(data: unknown): data is GoogleCalendarList
   );
 }
 
+// レスポンス本体は予定の内容なのでログに出さない。形 (kind と key 名) だけを返す
+function describeShape(data: unknown): string {
+  if (typeof data !== 'object' || data === null) return typeof data;
+  const kind = (data as Record<string, unknown>).kind;
+  return `kind=${typeof kind === 'string' ? kind : '?'} keys=${Object.keys(data).join(',')}`;
+}
+
 // --- メイン処理 ---
 
+type Perf = ReturnType<typeof startPerf>;
+
+// 計測はここで一括して行う: handle のどの return 経路でも `[perf]` 行が 1 行出る
 export async function GET() {
+  const perf = startPerf("api/calendar/get", ["calendar_ms"]);
+  try {
+    return perf.finish(await handle(perf));
+  } catch (error: unknown) {
+    perf.finish(new Response(null, { status: 500 }));
+    throw error;
+  }
+}
+
+async function handle(perf: Perf): Promise<NextResponse> {
   try {
     // 🔒 1. 認証チェック
     const session = await getServerSession(authOptions);
@@ -58,16 +79,19 @@ export async function GET() {
     url.searchParams.append("orderBy", "startTime");
 
     // 📡 3. Google APIへのリクエスト
-    const response = await fetch(url.toString(), {
-      headers: {
-        Authorization: `Bearer ${session.accessToken}`,
-        "Content-Type": "application/json",
-      },
-      // キャッシュを明示的に無効化
-      cache: "no-store", 
+    // Calendar の時間 = 応答本文の受信まで (fetch と json を 1 区間で測る)
+    const { response, data } = await perf.time("calendar_ms", async () => {
+      const response = await fetch(url.toString(), {
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        // キャッシュを明示的に無効化
+        cache: "no-store",
+      });
+      const data: unknown = await response.json();
+      return { response, data };
     });
-
-    const data: unknown = await response.json();
 
     // 🚨 4. Google APIのエラーハンドリング
     if (!response.ok) {
@@ -87,7 +111,7 @@ export async function GET() {
 
     // 🛡️ 5. レスポンスデータの検証 (Validation)
     if (!isGoogleCalendarListResponse(data)) {
-      console.error("Invalid Google API Response format:", data);
+      console.error("Invalid Google API Response format:", describeShape(data));
       return NextResponse.json({ error: "Invalid data format received from Google" }, { status: 502 });
     }
 

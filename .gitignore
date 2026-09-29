@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# measure -> improve loop: raw perf captures (not committed)
+.perf-raw/
