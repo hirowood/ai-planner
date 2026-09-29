@@ -21,6 +21,8 @@ const N = Number(process.env.BENCH_N ?? 20);
 const WARMUP = 3;
 const DELAY = { gemini_ms: 100, calendar_ms: 30 };
 const CREATE_EVENTS = 3;
+// ストリーム版の Gemini 差替え (EXP-001 で事前登録): 10 チャンク × 10ms = 合計 100ms (一括版と同じ合計)
+const STREAM = { chunks: 10, chunk_delay_ms: 10 };
 
 const post = (url: string, body: unknown) =>
   new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -39,22 +41,26 @@ it(`bench n=${N} (warmup ${WARMUP})`, async () => {
   authState.session = signedIn();
   geminiState.reply = "bench reply";
   geminiState.delayMs = DELAY.gemini_ms;
+  geminiState.chunks = Array.from({ length: STREAM.chunks }, (_, i) => `part-${i} `);
+  geminiState.chunkDelayMs = STREAM.chunk_delay_ms;
   stubFetch((url) =>
     url.includes("/events") ? { body: { kind: "calendar#events", items: [], id: "bench" }, delayMs: DELAY.calendar_ms } : { status: 404, body: {} },
   );
 
   for (const [name, run] of Object.entries(scenarios)) {
     const perf = capturePerf();
-    for (let i = 0; i < WARMUP; i++) await run();
+    // 本文を読み切る: ストリーム応答の `[perf]` は閉じたときに出る (JSON 応答では影響なし)
+    for (let i = 0; i < WARMUP; i++) await (await run()).arrayBuffer();
     perf.lines.length = 0;
     for (let i = 0; i < N; i++) {
       const res = await run();
       expect(res.status, `${name} run ${i}`).toBe(200);
+      await res.arrayBuffer();
     }
     const rows = perf.parsed();
     perf.restore();
     expect(rows).toHaveLength(N);
-    const fields = ["total_ms", "gemini_ms", "calendar_ms"].filter((f) => rows.every((r) => typeof r[f] === "number"));
+    const fields = ["total_ms", "first_chunk_ms", "gemini_ms", "calendar_ms"].filter((f) => rows.every((r) => typeof r[f] === "number"));
     results[name] = Object.fromEntries(fields.map((f) => [f, summarize(rows.map((r) => r[f] as number))]));
   }
 }, 120_000);
@@ -69,7 +75,7 @@ afterAll(() => {
     network_calls: guard.attempts.length,
     scenarios: results,
   };
-  const conditions = { n: N, delay_ms: DELAY, create_events: CREATE_EVENTS };
+  const conditions = { n: N, delay_ms: DELAY, create_events: CREATE_EVENTS, gemini_stream: STREAM };
   mkdirSync("bench/results", { recursive: true });
   const file = `bench/results/${out.label}.json`;
   writeFileSync(file, JSON.stringify({ ...out, conditions }, null, 2) + "\n");

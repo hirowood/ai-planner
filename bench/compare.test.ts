@@ -33,6 +33,12 @@ describe("bench/compare — 事前登録した閾値で機械的に判定する"
     expect(() => compare(result(100), result(80), "api/chat", "total_ms", 0)).toThrow("threshold_ms");
   });
 
+  it("baseField: ベースラインの別の項目と比べられる (EXP-001 R1: total_ms -> first_chunk_ms)", () => {
+    const cand: BenchResult = { ...result(100), scenarios: { "api/chat": { first_chunk_ms: summarize([9, 10, 11]), total_ms: summarize([99, 100, 101]) } } };
+    const r = compare(result(100), cand, "api/chat", "first_chunk_ms", 2.12, "total_ms");
+    expect(r).toMatchObject({ field: "total_ms -> first_chunk_ms", base_median: 100, candidate_median: 10, delta_ms: 90, verdict: "improved" });
+  });
+
   it("summarize: median / p90 / cv", () => {
     const s = summarize([10, 20, 30, 40, 50, 60, 70, 80, 90, 100]);
     expect(s).toMatchObject({ n: 10, median: 55, p90: 90, mean: 55 });

@@ -17,28 +17,31 @@ export type Comparison = {
   verdict: Verdict;
 };
 
-export function compare(base: BenchResult, cand: BenchResult, scenario: string, field: string, thresholdMs: number): Comparison {
+// baseField: ベースライン側で比べる項目。既定は field と同じ。EXP-001 の R1 は
+// 「改善前の total_ms」と「改善後の first_chunk_ms」を比べる (改善前は定義上 first_chunk = total)
+export function compare(base: BenchResult, cand: BenchResult, scenario: string, field: string, thresholdMs: number, baseField: string = field): Comparison {
   if (!(thresholdMs > 0)) throw new Error("threshold_ms must be a positive number fixed before measuring");
   for (const [name, r] of [["base", base], ["candidate", cand]] as const) {
     if (r.network_calls !== 0) throw new Error(`${name}: network_calls=${r.network_calls} (lab results must be offline)`);
   }
-  const b = base.scenarios[scenario]?.[field];
+  const b = base.scenarios[scenario]?.[baseField];
   const c = cand.scenarios[scenario]?.[field];
-  if (!b || !c) throw new Error(`missing ${scenario}.${field} in ${!b ? "base" : "candidate"}`);
+  if (!b || !c) throw new Error(`missing ${scenario}.${!b ? baseField : field} in ${!b ? "base" : "candidate"}`);
   const delta = Math.round((b.median - c.median) * 100) / 100;
   const verdict: Verdict = delta > thresholdMs ? "improved" : delta < -thresholdMs ? "worse" : "no_change";
-  return { scenario, field, base_median: b.median, candidate_median: c.median, delta_ms: delta, threshold_ms: thresholdMs, verdict };
+  const shown = baseField === field ? field : `${baseField} -> ${field}`;
+  return { scenario, field: shown, base_median: b.median, candidate_median: c.median, delta_ms: delta, threshold_ms: thresholdMs, verdict };
 }
 
 // CLI (node bench/compare.ts ...)
 if (process.argv[1]?.replace(/\\/g, "/").endsWith("bench/compare.ts")) {
-  const [basePath, candPath, scenario, field, threshold] = process.argv.slice(2);
+  const [basePath, candPath, scenario, field, threshold, baseField] = process.argv.slice(2);
   if (!threshold) {
-    console.error("usage: node bench/compare.ts <base.json> <candidate.json> <scenario> <field> <threshold_ms>");
+    console.error("usage: node bench/compare.ts <base.json> <candidate.json> <scenario> <field> <threshold_ms> [base_field]");
     process.exit(2);
   }
   const load = (p: string) => JSON.parse(readFileSync(p, "utf-8")) as BenchResult;
-  const result = compare(load(basePath), load(candPath), scenario, field, Number(threshold));
+  const result = compare(load(basePath), load(candPath), scenario, field, Number(threshold), baseField ?? field);
   console.log(JSON.stringify(result, null, 2));
   process.exit(result.verdict === "worse" ? 1 : 0);
 }
