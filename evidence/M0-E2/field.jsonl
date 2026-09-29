@@ -1,0 +1,8 @@
+{"route": "api/calendar/get", "status": 200, "total_ms": 345.3, "calendar_ms": 339.6}
+{"route": "api/chat", "status": 200, "total_ms": 3307, "gemini_ms": 3291.6}
+{"route": "api/chat", "status": 200, "total_ms": 7049.7, "gemini_ms": 7016.3}
+{"route": "api/chat", "status": 200, "total_ms": 9413.9, "gemini_ms": 9405.3}
+{"route": "api/chat", "status": 200, "total_ms": 8572.3, "gemini_ms": 8561}
+{"route": "api/chat", "status": 200, "total_ms": 8283.9, "gemini_ms": 8250.5}
+{"route": "api/calendar/create", "status": 200, "total_ms": 1575.3, "calendar_ms": 1568.1}
+{"route": "api/calendar/get", "status": 200, "total_ms": 364, "calendar_ms": 359.7}
