@@ -22,6 +22,33 @@ describe("lib/perf", () => {
     expect(typeof line.calendar_ms).toBe("number");
   });
 
+  it("streamText: チャンクを順に送り、閉じたときに 1 行 (first_chunk_ms ≤ total_ms)。finish は二重に記録しない", async () => {
+    async function* src() {
+      yield "a";
+      yield "b";
+    }
+    const p = startPerf("r");
+    const res = p.finish(p.streamText(src()));
+    expect(await res.text()).toBe("ab");
+    const lines = perf.parsed();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ route: "r", status: 200 });
+    expect(lines[0].first_chunk_ms as number).toBeLessThanOrEqual(lines[0].total_ms as number);
+  });
+
+  it("streamText: クライアントが途中で切ったら status 499 で 1 行", async () => {
+    async function* src() {
+      yield "a";
+      await new Promise((r) => setTimeout(r, 50));
+      yield "b";
+    }
+    const res = startPerf("r").streamText(src());
+    const reader = res.body!.getReader();
+    await reader.read();
+    await reader.cancel();
+    expect(perf.parsed()).toEqual([expect.objectContaining({ route: "r", status: 499 })]);
+  });
+
   it("finish() は同じ Response を返し、Server-Timing を付ける", () => {
     const res = new Response("x", { status: 201 });
     const out = startPerf("r").finish(res);

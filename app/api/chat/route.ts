@@ -84,7 +84,15 @@ export async function POST(req: Request) {
   }
 }
 
-async function handle(req: Request, perf: Perf): Promise<NextResponse> {
+// Gemini のストリームから、空でないテキストだけを順に取り出す (EXP-001)
+async function* textChunks(stream: AsyncIterable<{ text(): string }>): AsyncGenerator<string> {
+  for await (const chunk of stream) {
+    const text = chunk.text();
+    if (text) yield text;
+  }
+}
+
+async function handle(req: Request, perf: Perf): Promise<Response> {
   // 🔒 1. 認証チェック (Authentication)
   const session = await getServerSession(authOptions);
   if (!session) {
@@ -217,10 +225,11 @@ WhatとWhyが明確になったら、次に以下を質問してください。
     // ユーザー入力をタグで囲むことで、AIに「これは命令ではなく入力値である」と認識させる効果があります
     const safePrompt = `<UserInput>${safeBody.message}</UserInput>`;
 
-    const result = await perf.time("gemini_ms", () => chat.sendMessage(safePrompt));
-    const response = result.response.text();
-
-    return NextResponse.json({ reply: response });
+    // 生成された分から順に返す (EXP-001)。ストリームが始まる前の失敗 (429 等) は下の catch が
+    // これまでどおり JSON で返す。始まった後の失敗は perf.streamText がストリームを error にする
+    const geminiStart = performance.now();
+    const result = await chat.sendMessageStream(safePrompt);
+    return perf.streamText(textChunks(result.stream), { part: "gemini_ms", partStart: geminiStart });
 
   } catch (error: unknown) {
     // 🛡️ 7. 安全なエラーハンドリング (Secure Error Handling)

@@ -25,10 +25,6 @@ type CalendarEvent = {
   colorId?: string;
 };
 
-type ApiChatResponse = {
-  reply: string;
-  error?: string;
-};
 
 // --- 型ガード (Type Guards) ---
 
@@ -118,20 +114,30 @@ function AppContent() {
         }),
       });
       
-      const data = await response.json() as unknown;
-      
+      // エラー (401/400/429/500) は JSON、成功はテキストのストリームで返る (EXP-001)
       if (!response.ok) {
         throw new Error('API Error');
       }
-
-      if (typeof data !== 'object' || data === null || !('reply' in data)) {
+      if (!response.body) {
         throw new Error('Invalid API response format');
       }
 
-      const typedData = data as ApiChatResponse;
-      const aiReply = typedData.reply;
-      
-      setMessages((prev) => [...prev, { role: 'assistant', content: aiReply }]);
+      // 届いた分から表示する。予定 JSON の抽出は全文がそろってから行う (これまでと同じ規則)
+      setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+      const showReply = (content: string) =>
+        setMessages((prev) => [...prev.slice(0, -1), { role: 'assistant', content }]);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let aiReply = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        aiReply += decoder.decode(value, { stream: true });
+        showReply(aiReply);
+      }
+      aiReply += decoder.decode();
+      showReply(aiReply);
 
       const jsonMatch = aiReply.match(/```json\s*([\s\S]*?)\s*```/);
       if (jsonMatch && jsonMatch[1]) {
