@@ -1,5 +1,8 @@
 // @google/generative-ai の差し替え。
-// - sendMessage: `geminiState.reply` を `delayMs` 待ってから一括で返す (改善前の呼び方)
+// - sendMessage: 一括で返す (改善前の呼び方)。`chunks` があれば、ストリーム版と同じく
+//   チャンクを `chunkDelayMs` ずつ生成し、全部そろってから連結して返す (EXP-002)。
+//   こうすると両方の呼び方に同じタイマーの丸めがかかり、生成の実時間が揃う。
+//   `chunks` が無ければ `reply` を `delayMs` 待ってから返す (EXP-001 までの条件)
 // - sendMessageStream: `chunks` を 1 つずつ `chunkDelayMs` 間隔で返す (EXP-001 のストリーミング)。
 //   `failAfterChunks` を指定すると、その数だけ返したあとで失敗する
 export const geminiState: {
@@ -43,6 +46,11 @@ export const generativeAiMock = {
             async sendMessage(prompt: string) {
               geminiState.calls += 1;
               geminiState.lastPrompt = prompt;
+              if (geminiState.chunks) {
+                let text = "";
+                for await (const chunk of chunkStream()) text += chunk.text();
+                return { response: { text: () => text } };
+              }
               if (geminiState.delayMs > 0) await wait(geminiState.delayMs);
               return { response: { text: () => geminiState.reply } };
             },
