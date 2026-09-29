@@ -42,3 +42,5 @@ next-env.d.ts
 
 # measure -> improve loop: raw perf captures (not committed)
 .perf-raw/
+# lab bench raw results (copied into evidence/ when they count)
+bench/results/
