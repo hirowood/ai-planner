@@ -1,0 +1,9 @@
+{"route": "api/calendar/get", "status": 200, "total_ms": 462.7, "calendar_ms": 448.3}
+{"route": "api/calendar/get", "status": 200, "total_ms": 393.5, "calendar_ms": 363.5}
+{"route": "api/chat", "status": 200, "total_ms": 4415.3, "gemini_ms": 4362.9, "first_chunk_ms": 3764.8}
+{"route": "api/chat", "status": 200, "total_ms": 4903.9, "gemini_ms": 4873.1, "first_chunk_ms": 3883.9}
+{"route": "api/chat", "status": 200, "total_ms": 2005.6, "gemini_ms": 1973.6, "first_chunk_ms": 1063}
+{"route": "api/chat", "status": 200, "total_ms": 8112.3, "gemini_ms": 8102.9, "first_chunk_ms": 1239}
+{"route": "api/chat", "status": 200, "total_ms": 3123.6, "gemini_ms": 3105.4, "first_chunk_ms": 1116.4}
+{"route": "api/calendar/create", "status": 200, "total_ms": 634.3, "calendar_ms": 628}
+{"route": "api/calendar/get", "status": 200, "total_ms": 317, "calendar_ms": 293.9}
