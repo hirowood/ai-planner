@@ -10,9 +10,12 @@ import { TimeDialog } from "./components/TimeDialog";
 import { ProjectPanel, useProjectWorkspace } from "./components/ProjectPanel";
 import { NotesPanel } from "./components/NotesPanel";
 import { PlanFields, usePlanStore } from "./components/PlanFields";
+import { PlanTree, useItems } from "./components/PlanTree";
 import { parsePlanDraft, PLAN_FIELDS, PLAN_FIELD_LABEL, type PlanDraft } from "../lib/pdca-plan";
 import { greetingFor, startMessage, startChoices, type Choice } from "../lib/greeting";
 import { StartChoices } from "./components/StartChoices";
+import { AnswerChoices } from "./components/AnswerChoices";
+import { parseChoices } from "../lib/coach-choices";
 
 // 最後に開いたプロジェクトの id だけを端末に置く (EXP-021)。読み書きできなければ黙って諦める
 const LAST_PROJECT_KEY = 'ai-planner:lastProjectId';
@@ -109,8 +112,12 @@ function AppContent() {
   const [chatProblem, setChatProblem] = useState<string | null>(null);
   // 選んだプロジェクトの Plan の欄 (EXP-016)。会話の返事の plan もここへ反映する
   const planStore = usePlanStore(workspace.selectedId);
+  // 選んだプロジェクトの階層 (KGI → KPI → KDI → ToDo)
+  const it = useItems(workspace.selectedId);
   // 返事で Plan の欄が変わったときの読み上げ (次に送ったときに消す)
   const [planUpdated, setPlanUpdated] = useState<string | null>(null);
+  // AI の最後の質問への答えの候補 (EXP-023)。次に送るときに消す
+  const [answerChoices, setAnswerChoices] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   // 最後に開いたプロジェクト (EXP-021)。端末から読むので初回描画の後に入れる
   const [lastProjectId, setLastProjectId] = useState<string | null>(null);
@@ -222,6 +229,7 @@ function AppContent() {
     setNotice(null);
     setChatProblem(null);
     setPlanUpdated(null);
+    setAnswerChoices([]);
     // 時間の入力画面を開くときはそちらへフォーカスを渡し、それ以外は入力欄へ戻す
     let dialogOpened = false;
     const returnFocus = () => {
@@ -250,6 +258,8 @@ function AppContent() {
           return;
         }
         setMessages((prev) => [...prev, { role: 'assistant', content: stripTimeMarker(reply) }]);
+        // 答えの候補 (EXP-023)。サーバで検査済みだが、画面でも同じ検査を通してからボタンにする
+        setAnswerChoices(parseChoices((body as { choices?: unknown }).choices));
         const plan = parsePlanDraft((body as { plan?: unknown }).plan);
         if (plan) {
           setPlanUpdated(planChangeNotice(planStore.plan, plan));
@@ -533,8 +543,17 @@ function AppContent() {
              </div>
            ))}
            </div>
+           {/* AI が質問で終えたときは、答えの候補を先に出す (EXP-023)。無いときは次にすることの選択肢 */}
+           {messages.length > 0 && answerChoices.length > 0 && (
+             <AnswerChoices
+               choices={answerChoices}
+               busy={chatBusy}
+               onPick={(text) => { void handleSendMessage(text); setTimeout(() => inputRef.current?.focus(), 0); }}
+               onWriteOwn={() => inputRef.current?.focus()}
+             />
+           )}
            {/* 会話がある時も、一番下に次にすることの選択肢を出す (送信中は押せない) */}
-           {messages.length > 0 && (
+           {messages.length > 0 && answerChoices.length === 0 && (
              <StartChoices
                message="次にすることを選べます。"
                choices={choices}
@@ -632,14 +651,34 @@ function AppContent() {
                   ))}
                 </div>
                 {projectTab === 'plan' ? (
-                  <div role="tabpanel" id="project-panel-plan" aria-labelledby="project-tab-plan">
-                    <PlanFields
-                      plan={planStore.plan}
-                      onChange={planStore.setPlanByUser}
-                      cycleId={planStore.cycleId}
-                      saveStatus={planStore.saveStatus}
-                      onRegisterCalendar={() => void planStore.registerCalendar()}
-                    />
+                  <div role="tabpanel" id="project-panel-plan" aria-labelledby="project-tab-plan" className="flex flex-col gap-6">
+                    <section aria-labelledby="plan-tree-heading" className="flex flex-col gap-3">
+                      <h3 id="plan-tree-heading" className="text-base font-bold text-gray-800"><span aria-hidden="true">🌳</span> 階層 (KGI → KPI → KDI → ToDo)</h3>
+                      <div role="status">
+                        {it.loading && <p className="text-sm text-gray-600">読み込み中…</p>}
+                        {it.problem && (
+                          <p className="p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-sm">{it.problem}</p>
+                        )}
+                      </div>
+                      <PlanTree
+                        items={it.items}
+                        lastParentId={it.lastParentId}
+                        onCreate={(i) => void it.create(i)}
+                        onUpdate={(id, p) => void it.update(id, p)}
+                        onDelete={(id) => void it.remove(id)}
+                        onLastParentChange={it.setLastParentId}
+                      />
+                    </section>
+                    <section aria-labelledby="plan-fields-heading" className="flex flex-col gap-3">
+                      <h3 id="plan-fields-heading" className="text-base font-bold text-gray-800">Plan の要点</h3>
+                      <PlanFields
+                        plan={planStore.plan}
+                        onChange={planStore.setPlanByUser}
+                        cycleId={planStore.cycleId}
+                        saveStatus={planStore.saveStatus}
+                        onRegisterCalendar={() => void planStore.registerCalendar()}
+                      />
+                    </section>
                   </div>
                 ) : (
                   <div role="tabpanel" id="project-panel-notes" aria-labelledby="project-tab-notes">

@@ -70,6 +70,7 @@ const ALLOWED = [
   "calendar_ms", "first_chunk_ms", "gemini_ms", "history_len", "plan_proposed", "question_count", "route", "status",
   "time_dialog_used", "time_prompted", "total_ms", "db_ms", "row_count", "fields_filled",
   "context_notes", "context_cycles",
+  "choices_count", // EXP-023 で許可した数 (候補の中身は持たない)
 ];
 const ROUTE = "api/coach";
 const EMAIL = "canary-user-c0a7@example.com";
