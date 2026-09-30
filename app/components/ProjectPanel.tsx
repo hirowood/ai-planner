@@ -82,6 +82,7 @@ export function ProjectPanel({ projects, selectedId, onSelect, onCreate }: {
           <input
             type="text"
             name="project-name"
+            id="project-name-input"
             autoComplete="off"
             maxLength={60}
             value={name}

@@ -11,6 +11,25 @@ import { ProjectPanel, useProjectWorkspace } from "./components/ProjectPanel";
 import { NotesPanel } from "./components/NotesPanel";
 import { PlanFields, usePlanStore } from "./components/PlanFields";
 import { parsePlanDraft, PLAN_FIELDS, PLAN_FIELD_LABEL, type PlanDraft } from "../lib/pdca-plan";
+import { greetingFor, startMessage, startChoices, type Choice } from "../lib/greeting";
+import { StartChoices } from "./components/StartChoices";
+
+// 最後に開いたプロジェクトの id だけを端末に置く (EXP-021)。読み書きできなければ黙って諦める
+const LAST_PROJECT_KEY = 'ai-planner:lastProjectId';
+function readLastProjectId(): string | null {
+  try {
+    return window.localStorage.getItem(LAST_PROJECT_KEY);
+  } catch {
+    return null;
+  }
+}
+function writeLastProjectId(id: string): void {
+  try {
+    window.localStorage.setItem(LAST_PROJECT_KEY, id);
+  } catch {
+    // 保存できない端末では「前回の続き」を出さないだけ
+  }
+}
 
 // 返事で変わった Plan の欄を読み上げ用の 1 文にする (変わっていなければ null)
 function planChangeNotice(before: PlanDraft, after: PlanDraft): string | null {
@@ -93,6 +112,10 @@ function AppContent() {
   // 返事で Plan の欄が変わったときの読み上げ (次に送ったときに消す)
   const [planUpdated, setPlanUpdated] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // 最後に開いたプロジェクト (EXP-021)。端末から読むので初回描画の後に入れる
+  const [lastProjectId, setLastProjectId] = useState<string | null>(null);
+  // 右の列を切り替えた後に、作成欄の名前へフォーカスを移す
+  const [focusProjectName, setFocusProjectName] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // 初回表示の計測 (measure → improve ループ M0): 最初の予定取得の完了時に 1 回だけ出す
@@ -111,6 +134,23 @@ function AppContent() {
 
   // プロジェクトを選び直したら、その会話に入れ替える。選んでいない間は画面の会話をそのまま残す (EXP-010)
   const selectedProjectId = workspace.selectedId;
+
+  useEffect(() => {
+    setLastProjectId(readLastProjectId());
+  }, []);
+
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    writeLastProjectId(selectedProjectId);
+    setLastProjectId(selectedProjectId);
+  }, [selectedProjectId]);
+
+  useEffect(() => {
+    if (!focusProjectName || sideTab !== 'projects') return;
+    setFocusProjectName(false);
+    document.getElementById('project-name-input')?.focus();
+  }, [focusProjectName, sideTab]);
+
   useEffect(() => {
     chatProjectId.current = selectedProjectId;
     if (!selectedProjectId) {
@@ -303,6 +343,46 @@ function AppContent() {
     }
   };
 
+  // 最後に開いたプロジェクトが、読み込んだ一覧に今もあるときだけ「前回の続き」を出す (EXP-021)
+  const hasLastProject = lastProjectId !== null && workspace.projects.some((p) => p.id === lastProjectId);
+  const chatBusy = isLoading || historyLoading;
+  const choices = startChoices({ projectSelected: Boolean(workspace.selected), hasLastProject });
+  const firstName = session?.user?.name?.trim().split(/\s+/)[0] || null;
+
+  const handleChoose = (choice: Choice) => {
+    if (chatBusy) return;
+    if (choice.message) {
+      void handleSendMessage(choice.message);
+      // 押したボタンは会話が始まると消えるので、フォーカスを入力欄へ移す (EXP-021 の a11y レビュー・2.4.3)
+      setTimeout(() => inputRef.current?.focus(), 0);
+      return;
+    }
+    switch (choice.id) {
+      case 'new_project':
+        setSideTab('projects');
+        setFocusProjectName(true);
+        return;
+      case 'calendar':
+        setSideTab('calendar');
+        // 右の列が黙って切り替わらないよう、常設の status で知らせる (4.1.3)
+        setPlanUpdated('右の列で予定を開きました');
+        return;
+      case 'resume':
+        if (hasLastProject && lastProjectId) {
+          setSideTab('projects');
+          workspace.select(lastProjectId);
+          const name = workspace.projects.find((p) => p.id === lastProjectId)?.name;
+          if (name) setPlanUpdated(`『${name}』を開きました`);
+        }
+        return;
+      case 'brainstorm':
+        inputRef.current?.focus();
+        return;
+      default:
+        return;
+    }
+  };
+
   const onFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     void handleSendMessage(input);
@@ -421,6 +501,20 @@ function AppContent() {
            {workspace.selected && (
              <p className="text-xs text-gray-600"><span aria-hidden="true">💬</span> 『{workspace.selected.name}』の PDCA (記録を見て答えます)</p>
            )}
+           {/* 会話がまだ無い時は、挨拶と選択肢を最初に出す (EXP-021・読み込み中は出さない) */}
+           {messages.length === 0 && !historyLoading && (
+             <StartChoices
+               message={startMessage({
+                 greeting: greetingFor(new Date()),
+                 userName: firstName,
+                 projectName: workspace.selected?.name ?? null,
+                 hasHistory: false,
+               })}
+               choices={choices}
+               busy={chatBusy}
+               onChoose={handleChoose}
+             />
+           )}
            <div role="log" aria-live="polite" aria-relevant="additions" aria-label="会話の履歴" className="space-y-4">
            {messages.map((msg, i) => (
              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -439,6 +533,15 @@ function AppContent() {
              </div>
            ))}
            </div>
+           {/* 会話がある時も、一番下に次にすることの選択肢を出す (送信中は押せない) */}
+           {messages.length > 0 && (
+             <StartChoices
+               message="次にすることを選べます。"
+               choices={choices}
+               busy={chatBusy}
+               onChoose={handleChoose}
+             />
+           )}
            {/* 読み込み中・考え中・Plan の更新を 1 つの status で伝える (常に置いておく) */}
            <p role="status" aria-busy={isLoading || historyLoading} className="text-sm text-gray-600">
              {historyLoading ? '会話を読み込み中…' : isLoading ? <span className="animate-pulse motion-reduce:animate-none">考え中...</span> : planUpdated ?? ''}
