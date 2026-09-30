@@ -54,3 +54,20 @@ create table if not exists messages (
 );
 
 create index if not exists messages_owner_project_thread_created_idx on messages (owner, project_id, thread, created_at);
+
+-- EXP-017: プロジェクトの中の階層 (kgi → kpi → kdi → todo) とタスクの状態。親を消すと子も消える
+create table if not exists plan_items (
+  id uuid primary key default gen_random_uuid(),
+  owner text not null,
+  project_id uuid not null references projects (id) on delete cascade,
+  parent_id uuid references plan_items (id) on delete cascade,
+  level text not null,
+  title text not null,
+  target text not null default '',
+  due_date date,
+  status text not null default 'todo',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists plan_items_owner_project_idx on plan_items (owner, project_id);

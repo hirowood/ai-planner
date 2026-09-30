@@ -5,6 +5,14 @@ import type { Sql } from "./db";
 import type { Category, Note, NoteInput, NoteKind, Project, ProjectInput } from "./projects";
 import { EMPTY_PLAN, parsePlanDraft, type PlanDraft } from "./pdca-plan";
 import { HISTORY_LIMIT, type MessagesInput, type StoredMessage, type Thread } from "./messages";
+import {
+  CHILD_LEVEL,
+  type ItemInput,
+  type ItemLevel,
+  type ItemPatch,
+  type ItemStatus,
+  type PlanItem,
+} from "./plan-items";
 
 type Row = Record<string, unknown>;
 
@@ -266,4 +274,116 @@ export async function appendMessages(sql: Sql, owner: string, input: MessagesInp
   }
   // 途中でプロジェクトが他人のもの・しまわれた状態になった場合も対象なしとして扱う
   return count > 0 ? count : null;
+}
+
+// --- プロジェクトの中の階層 (EXP-017) ---
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** date 列は driver により "YYYY-MM-DD" の文字列か Date で届く。どちらでも "YYYY-MM-DD" に、null は "" にする。 */
+function toDateOnly(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  if (v instanceof Date) {
+    if (Number.isNaN(v.getTime())) return "";
+    // pg の date は端末の時刻の 0 時として Date になるので、端末の年月日で読む
+    return `${v.getFullYear()}-${pad2(v.getMonth() + 1)}-${pad2(v.getDate())}`;
+  }
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(v));
+  return m ? m[1] : "";
+}
+
+function toItem(r: Row): PlanItem {
+  return {
+    id: String(r.id),
+    projectId: String(r.project_id),
+    parentId: r.parent_id === null || r.parent_id === undefined ? null : String(r.parent_id),
+    level: String(r.level) as ItemLevel,
+    title: String(r.title),
+    target: String(r.target ?? ""),
+    dueDate: toDateOnly(r.due_date),
+    status: String(r.status) as ItemStatus,
+    createdAt: toIso(r.created_at),
+    updatedAt: toIso(r.updated_at),
+  };
+}
+
+/** CHILD_LEVEL[親の段] が level になる段 (= 親に置ける段)。kgi は親を持たないので null。 */
+function parentLevelOf(level: ItemLevel): ItemLevel | null {
+  const found = (Object.keys(CHILD_LEVEL) as ItemLevel[]).find((l) => CHILD_LEVEL[l] === level);
+  return found ?? null;
+}
+
+/** 持ち主のプロジェクトの階層の項目を古い順に返す。 */
+export async function listItems(sql: Sql, owner: string, projectId: string): Promise<PlanItem[]> {
+  const rows = await sql`
+    select id, project_id, parent_id, level, title, target, due_date, status, created_at, updated_at from plan_items
+    where owner = ${owner} and project_id = ${projectId}
+    order by created_at asc, id asc
+  `;
+  return rows.map(toItem);
+}
+
+/**
+ * プロジェクトが owner のもの (しまっていない) で、親があれば同じプロジェクトの owner の項目で
+ * 親の段の子が input.level のときだけ作る。どれかが合わなければ null。
+ */
+export async function createItem(sql: Sql, owner: string, input: ItemInput): Promise<PlanItem | null> {
+  const dueDate = input.dueDate === "" ? null : input.dueDate;
+  const expectedParentLevel = parentLevelOf(input.level);
+  if (input.parentId === null) {
+    // 親なしで置けるのは kgi だけ
+    if (expectedParentLevel !== null) return null;
+    const rows = await sql`
+      insert into plan_items (owner, project_id, parent_id, level, title, target, due_date, status)
+      select ${owner}, ${input.projectId}, null, ${input.level}, ${input.title}, ${input.target}, ${dueDate}::date, ${input.status}
+      where exists (
+        select 1 from projects
+        where id = ${input.projectId} and owner = ${owner} and archived_at is null
+      )
+      returning id, project_id, parent_id, level, title, target, due_date, status, created_at, updated_at
+    `;
+    return rows.length > 0 ? toItem(rows[0]) : null;
+  }
+  // kgi は親を持たない
+  if (expectedParentLevel === null) return null;
+  const rows = await sql`
+    insert into plan_items (owner, project_id, parent_id, level, title, target, due_date, status)
+    select ${owner}, ${input.projectId}, ${input.parentId}::uuid, ${input.level}, ${input.title}, ${input.target}, ${dueDate}::date, ${input.status}
+    where exists (
+      select 1 from projects
+      where id = ${input.projectId} and owner = ${owner} and archived_at is null
+    )
+    and exists (
+      select 1 from plan_items
+      where id = ${input.parentId} and project_id = ${input.projectId} and owner = ${owner} and level = ${expectedParentLevel}
+    )
+    returning id, project_id, parent_id, level, title, target, due_date, status, created_at, updated_at
+  `;
+  return rows.length > 0 ? toItem(rows[0]) : null;
+}
+
+/** owner の項目の、patch にある項目だけを変えて updated_at を今にする。他人・無い項目は null。 */
+export async function updateItem(sql: Sql, owner: string, id: string, patch: ItemPatch): Promise<PlanItem | null> {
+  const hasDue = patch.dueDate !== undefined;
+  const dueDate = patch.dueDate === undefined || patch.dueDate === "" ? null : patch.dueDate;
+  const rows = await sql`
+    update plan_items set
+      title = coalesce(${patch.title ?? null}, title),
+      target = coalesce(${patch.target ?? null}, target),
+      status = coalesce(${patch.status ?? null}, status),
+      due_date = case when ${hasDue}::boolean then ${dueDate}::date else due_date end,
+      updated_at = now()
+    where id = ${id} and owner = ${owner}
+    returning id, project_id, parent_id, level, title, target, due_date, status, created_at, updated_at
+  `;
+  return rows.length > 0 ? toItem(rows[0]) : null;
+}
+
+/** owner の項目を消せたら true (子も on delete cascade で消える)。他人・無い項目は false。 */
+export async function deleteItem(sql: Sql, owner: string, id: string): Promise<boolean> {
+  const rows = await sql`
+    delete from plan_items where id = ${id} and owner = ${owner}
+    returning id
+  `;
+  return rows.length > 0;
 }
