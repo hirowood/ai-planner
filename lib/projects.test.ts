@@ -34,7 +34,8 @@ describe("parseProjectInput (EXP-008 L1)", () => {
     ["空白だけの名前", { ...valid, name: "   " }],
     ["61 字の名前", { ...valid, name: "あ".repeat(61) }],
     ["501 字の目的", { ...valid, purpose: "a".repeat(501) }],
-    ["知らない種類", { ...valid, category: "hobby" }],
+    // EXP-012 で自由入力を受け付けるようになったので、「知らない種類」は 21 字の種類に置き換えた
+    ["21 字の種類", { ...valid, category: "あ".repeat(21) }],
     ["種類が無い", { name: valid.name, purpose: valid.purpose }],
     ["名前が文字列でない", { ...valid, name: 123 }],
   ])("%s は null (EXP-008 L1)", (_label, input) => {
@@ -69,7 +70,7 @@ describe("parseNoteInput (EXP-008 L1)", () => {
     ["空の本文", { ...valid, body: "" }],
     ["空白だけの本文", { ...valid, body: "  \n " }],
     ["2001 字の本文", { ...valid, body: "a".repeat(2001) }],
-    ["知らない種類", { ...valid, kind: "opinion" }],
+    ["21 字の種類", { ...valid, kind: "a".repeat(21) }],
     ["UUID でない projectId", { ...valid, projectId: "not-a-uuid" }],
     ["数字の projectId", { ...valid, projectId: 1 }],
     ["projectId が無い", { kind: valid.kind, body: valid.body }],

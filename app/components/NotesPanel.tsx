@@ -2,16 +2,16 @@
 
 import { useRef, useState } from 'react';
 import {
-  CATEGORY_LABEL,
+  CUSTOM_KIND_MAX,
   NOTE_KIND_LABEL,
+  categoryLabel,
+  noteKindLabel,
   parseNoteInput,
   type Note,
   type NoteInput,
-  type NoteKind,
   type Project,
 } from '../../lib/projects';
-
-const KINDS = Object.keys(NOTE_KIND_LABEL) as NoteKind[];
+import { KindPicker, kindFromChoice } from './KindPicker';
 
 const focusRing = 'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1';
 
@@ -37,7 +37,9 @@ export function NotesPanel({ project, notes, onCreate, onDelete }: {
   onCreate(input: NoteInput): void;
   onDelete(id: string): void;
 }) {
-  const [kind, setKind] = useState<NoteKind>('fact');
+  // kind = 既定の値か OTHER。OTHER のときは customKind が種類の名前 (EXP-012)
+  const [kind, setKind] = useState<string>('fact');
+  const [customKind, setCustomKind] = useState('');
   const [body, setBody] = useState('');
   const [invalid, setInvalid] = useState<string | null>(null);
   const [armedId, setArmedId] = useState<string | null>(null);
@@ -52,9 +54,9 @@ export function NotesPanel({ project, notes, onCreate, onDelete }: {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    const input = parseNoteInput({ projectId: project.id, kind, body });
+    const input = parseNoteInput({ projectId: project.id, kind: kindFromChoice(kind, customKind), body });
     if (!input) {
-      setInvalid('本文は1〜2000字で入力してください。');
+      setInvalid(`種類の名前は${CUSTOM_KIND_MAX}字まで、本文は1〜2000字で入力してください。`);
       return;
     }
     setInvalid(null);
@@ -81,34 +83,22 @@ export function NotesPanel({ project, notes, onCreate, onDelete }: {
         <div className="flex items-center gap-2">
           <h2 id="notes-project-title" className="text-lg font-bold text-gray-900 truncate">{project.name}</h2>
           <span className="shrink-0 text-xs px-2 py-0.5 rounded border border-gray-300 text-gray-700">
-            {CATEGORY_LABEL[project.category]}
+            {categoryLabel(project.category)}
           </span>
         </div>
         {project.purpose && <p className="text-sm text-gray-700 whitespace-pre-wrap">{project.purpose}</p>}
       </header>
 
       <form onSubmit={submit} className="flex flex-col gap-3 p-3 rounded-lg bg-white border border-gray-300">
-        <fieldset className="flex flex-col gap-1">
-          <legend className="text-sm text-gray-700 mb-1">種類</legend>
-          <div className="flex gap-2">
-            {KINDS.map((k) => (
-              <label
-                key={k}
-                className={`flex-1 text-center px-3 py-2 rounded-lg border cursor-pointer text-sm has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blue-500 ${kind === k ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-800 border-gray-300'}`}
-              >
-                <input
-                  type="radio"
-                  name="note-kind"
-                  value={k}
-                  checked={kind === k}
-                  onChange={() => setKind(k)}
-                  className="sr-only"
-                />
-                {NOTE_KIND_LABEL[k]}
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        <KindPicker
+          legend="種類"
+          groupName="note-kind"
+          presets={NOTE_KIND_LABEL}
+          choice={kind}
+          custom={customKind}
+          onChoice={setKind}
+          onCustom={setCustomKind}
+        />
 
         <label className="flex flex-col gap-1 text-sm text-gray-700">
           本文
@@ -150,7 +140,7 @@ export function NotesPanel({ project, notes, onCreate, onDelete }: {
                 }}
                 className="p-3 rounded-lg bg-white border border-gray-300 flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-2 text-xs text-gray-700">
-                  <span className="px-2 py-0.5 rounded border border-gray-300 font-bold">{NOTE_KIND_LABEL[n.kind]}</span>
+                  <span className="px-2 py-0.5 rounded border border-gray-300 font-bold">{noteKindLabel(n.kind)}</span>
                   <time dateTime={n.createdAt}>{formatDate(n.createdAt)}</time>
                 </div>
                 <p className="text-gray-900 whitespace-pre-wrap break-words">{n.body}</p>

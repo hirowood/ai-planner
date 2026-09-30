@@ -173,7 +173,7 @@ describe("POST /api/notes (EXP-008 L3)", () => {
     ["壊れた JSON", "{not json"],
     ["空の本文", { ...validBody, body: "" }],
     ["2001 字の本文", { ...validBody, body: "a".repeat(2001) }],
-    ["知らない種類", { ...validBody, kind: "opinion" }],
+    ["21 字の種類", { ...validBody, kind: "a".repeat(21) }],
     ["UUID でない projectId", { ...validBody, projectId: "p1" }],
   ])("%s は 400 で DB を呼ばない (EXP-008 L3)", async (_label, body) => {
     signedInWithEmail();

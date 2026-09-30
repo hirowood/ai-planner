@@ -16,7 +16,7 @@ function toProject(r: Row): Project {
   return {
     id: String(r.id),
     name: String(r.name),
-    category: r.category as Category, // schema の check 制約で 3 つのどれかに限られる
+    category: String(r.category) as Category, // 既定の値か自由入力の名前 (EXP-012・字数は API の検査で守る)
     purpose: String(r.purpose ?? ""),
     createdAt: toIso(r.created_at),
   };
@@ -26,7 +26,7 @@ function toNote(r: Row): Note {
   return {
     id: String(r.id),
     projectId: String(r.project_id),
-    kind: r.kind as NoteKind, // schema の check 制約で 3 つのどれかに限られる
+    kind: String(r.kind) as NoteKind, // 既定の値か自由入力の名前 (EXP-012)
     body: String(r.body),
     createdAt: toIso(r.created_at),
   };

@@ -140,7 +140,7 @@ describe("/api/projects (EXP-008 L3)", () => {
     ["壊れた JSON", "{not json"],
     ["空の名前", { ...validBody, name: "" }],
     ["61 字の名前", { ...validBody, name: "a".repeat(61) }],
-    ["知らない種類", { ...validBody, category: "hobby" }],
+    ["21 字の種類", { ...validBody, category: "a".repeat(21) }],
   ])("POST: %s は 400 で DB を呼ばない (EXP-008 L3)", async (_label, body) => {
     signedInWithEmail();
     const res = await POST(post(body));

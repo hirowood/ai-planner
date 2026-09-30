@@ -1,11 +1,11 @@
--- 目的別プロジェクトとノート (EXP-008)。何度流しても同じ結果になる (if not exists)。
+-- 目的別プロジェクトとノート (EXP-008)。何度流しても同じ結果になる (if not exists / if exists)。
 -- 流し方: node --env-file=.env.local scripts/db-migrate.mjs
 
 create table if not exists projects (
   id uuid primary key default gen_random_uuid(),
   owner text not null,
   name text not null,
-  category text not null check (category in ('habit', 'learning', 'work')),
+  category text not null,
   purpose text not null default '',
   created_at timestamptz not null default now(),
   archived_at timestamptz
@@ -17,10 +17,14 @@ create table if not exists notes (
   id uuid primary key default gen_random_uuid(),
   owner text not null,
   project_id uuid not null references projects (id) on delete cascade,
-  kind text not null check (kind in ('fact', 'data', 'thought')),
+  kind text not null,
   body text not null,
   cycle_id uuid,
   created_at timestamptz not null default now()
 );
 
 create index if not exists notes_owner_project_created_idx on notes (owner, project_id, created_at desc);
+
+-- EXP-012: 種類は既定の値か自由入力の名前。EXP-008 で作った「3 つのどれか」の制約を外す (字数は API の検査で守る)
+alter table projects drop constraint if exists projects_category_check;
+alter table notes drop constraint if exists notes_kind_check;

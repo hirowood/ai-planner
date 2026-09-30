@@ -3,15 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CATEGORY_LABEL,
+  CUSTOM_KIND_MAX,
+  categoryLabel,
   parseProjectInput,
-  type Category,
   type Note,
   type NoteInput,
   type Project,
   type ProjectInput,
 } from '../../lib/projects';
-
-const CATEGORIES = Object.keys(CATEGORY_LABEL) as Category[];
+import { KindPicker, kindFromChoice } from './KindPicker';
 
 const focusRing = 'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1';
 
@@ -26,15 +26,17 @@ export function ProjectPanel({ projects, selectedId, onSelect, onCreate }: {
   onCreate(input: ProjectInput): void;
 }) {
   const [name, setName] = useState('');
-  const [category, setCategory] = useState<Category>('habit');
+  // category = 既定の値か OTHER。OTHER のときは customCategory が種類の名前 (EXP-012)
+  const [category, setCategory] = useState<string>('habit');
+  const [customCategory, setCustomCategory] = useState('');
   const [purpose, setPurpose] = useState('');
   const [invalid, setInvalid] = useState<string | null>(null);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    const input = parseProjectInput({ name, category, purpose });
+    const input = parseProjectInput({ name, category: kindFromChoice(category, customCategory), purpose });
     if (!input) {
-      setInvalid('名前は1〜60字、目的は500字までで入力してください。');
+      setInvalid(`名前は1〜60字、種類の名前は${CUSTOM_KIND_MAX}字まで、目的は500字までで入力してください。`);
       return;
     }
     setInvalid(null);
@@ -63,7 +65,7 @@ export function ProjectPanel({ projects, selectedId, onSelect, onCreate }: {
                 >
                   <span className="font-semibold text-gray-900 truncate">{p.name}</span>
                   <span className="shrink-0 text-xs px-2 py-0.5 rounded border border-gray-300 text-gray-700">
-                    {CATEGORY_LABEL[p.category]}
+                    {categoryLabel(p.category)}
                   </span>
                 </button>
               </li>
@@ -88,27 +90,15 @@ export function ProjectPanel({ projects, selectedId, onSelect, onCreate }: {
           />
         </label>
 
-        <fieldset className="flex flex-col gap-1">
-          <legend className="text-sm text-gray-700 mb-1">種類</legend>
-          <div className="flex gap-2">
-            {CATEGORIES.map((c) => (
-              <label
-                key={c}
-                className={`flex-1 text-center px-3 py-2 rounded-lg border cursor-pointer text-sm has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blue-500 ${category === c ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-800 border-gray-300'}`}
-              >
-                <input
-                  type="radio"
-                  name="project-category"
-                  value={c}
-                  checked={category === c}
-                  onChange={() => setCategory(c)}
-                  className="sr-only"
-                />
-                {CATEGORY_LABEL[c]}
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        <KindPicker
+          legend="種類"
+          groupName="project-category"
+          presets={CATEGORY_LABEL}
+          choice={category}
+          custom={customCategory}
+          onChoice={setCategory}
+          onCustom={setCustomCategory}
+        />
 
         <label className="flex flex-col gap-1 text-sm text-gray-700">
           目的
