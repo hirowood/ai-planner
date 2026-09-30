@@ -4,6 +4,7 @@
 import type { Sql } from "./db";
 import type { Category, Note, NoteInput, NoteKind, Project, ProjectInput } from "./projects";
 import { EMPTY_PLAN, parsePlanDraft, type PlanDraft } from "./pdca-plan";
+import { HISTORY_LIMIT, type MessagesInput, type StoredMessage, type Thread } from "./messages";
 
 type Row = Record<string, unknown>;
 
@@ -167,4 +168,51 @@ export async function saveCycle(sql: Sql, owner: string, input: CycleInput): Pro
     returning id, project_id, phase, plan, created_at, updated_at
   `;
   return rows.length > 0 ? toCycle(rows[0]) : null;
+}
+
+// --- 会話の保存と続きから (EXP-010) ---
+
+function toMessage(r: Row): StoredMessage {
+  return {
+    id: String(r.id),
+    role: r.role === "assistant" ? "assistant" : "user",
+    content: String(r.content),
+    createdAt: toIso(r.created_at),
+  };
+}
+
+/** 持ち主のプロジェクトの thread の会話。新しい HISTORY_LIMIT 件を古い順に返す。 */
+export async function listMessages(sql: Sql, owner: string, projectId: string, thread: Thread): Promise<StoredMessage[]> {
+  const rows = await sql`
+    select id, role, content, created_at from messages
+    where owner = ${owner} and project_id = ${projectId} and thread = ${thread}
+    order by created_at desc, id desc
+    limit ${HISTORY_LIMIT}
+  `;
+  return rows.map(toMessage).reverse();
+}
+
+/** プロジェクトが owner のもの (しまっていない) のときだけ会話を足す。入れた件数を返し、対象が無ければ null。 */
+export async function appendMessages(sql: Sql, owner: string, input: MessagesInput): Promise<number | null> {
+  const owned = await sql`
+    select 1 from projects
+    where id = ${input.projectId} and owner = ${owner} and archived_at is null
+  `;
+  if (owned.length === 0) return null;
+  let count = 0;
+  for (const [i, m] of input.messages.entries()) {
+    // 同じ回の発言の順序を保つため、created_at を 1 ミリ秒ずつずらす
+    const rows = await sql`
+      insert into messages (owner, project_id, thread, role, content, created_at)
+      select ${owner}, ${input.projectId}, ${input.thread}, ${m.role}, ${m.content}, now() + (${i}::int * interval '1 millisecond')
+      where exists (
+        select 1 from projects
+        where id = ${input.projectId} and owner = ${owner} and archived_at is null
+      )
+      returning id
+    `;
+    count += rows.length;
+  }
+  // 途中でプロジェクトが他人のもの・しまわれた状態になった場合も対象なしとして扱う
+  return count > 0 ? count : null;
 }

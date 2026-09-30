@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import {
   EMPTY_PLAN,
   PLAN_FIELDS,
@@ -13,6 +13,7 @@ import {
   type PlanDraft,
   type PlanField,
 } from '../../lib/pdca-plan';
+import type { StoredMessage, Thread } from '../../lib/messages';
 import type { Project } from '../../lib/projects';
 import { quotaNotice } from '../../lib/quota';
 import { MessageContent } from './MessageContent';
@@ -23,8 +24,61 @@ const KPI_MAX = 3;
 const KDI_MAX = 5;
 const DB_NOT_CONFIGURED = 'データベースが未設定です';
 
+// 自動保存 (EXP-010): 欄が変わってから 1 秒後に保存する
+const AUTOSAVE_MS = 1000;
+const SAVING = '保存中…';
+const SAVED = '保存済み';
+const SAVE_FAILED = '保存できませんでした';
+const MESSAGES_SAVE_FAILED = '会話を保存できませんでした';
+// チャットの壁打ちを Plan に反映 (EXP-010)
+const REFLECT_MESSAGE = 'ここまでの壁打ちの内容から、Plan の欄を埋めてください。';
+const REFLECT_HISTORY = 20;
+const NO_CHAT = 'チャットの会話がまだありません';
+const REFLECTED = 'Plan の欄に反映しました';
+// /api/plan/chat の受け付ける上限 (超えると 400 になるため、送る前に合わせる)
+const PLAN_CHAT_HISTORY_MAX = 50;
+const PLAN_CHAT_CONTENT_MAX = 2000;
+
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
 type Cycle = { id: string; plan: PlanDraft; phase?: string };
+
+/** /api/plan/chat へ送る history の形にそろえる (件数と字数を route の上限に合わせる)。 */
+function toHistory(messages: ChatMessage[]): ChatMessage[] {
+  return messages
+    .slice(-PLAN_CHAT_HISTORY_MAX)
+    .map((m) => ({ role: m.role, content: [...m.content].slice(0, PLAN_CHAT_CONTENT_MAX).join('') }));
+}
+
+function asStoredMessages(x: unknown): StoredMessage[] {
+  if (!Array.isArray(x)) return [];
+  return x.filter((m): m is StoredMessage => {
+    if (typeof m !== 'object' || m === null) return false;
+    const r = m as Record<string, unknown>;
+    return (r.role === 'user' || r.role === 'assistant') && typeof r.content === 'string';
+  });
+}
+
+async function fetchThread(projectId: string, thread: Thread): Promise<{ ok: true; messages: StoredMessage[] } | { ok: false; status: number }> {
+  const res = await fetch(`/api/messages?projectId=${encodeURIComponent(projectId)}&thread=${thread}`);
+  if (!res.ok) return { ok: false, status: res.status };
+  return { ok: true, messages: asStoredMessages((await readJson(res))?.messages) };
+}
+
+/** 会話を保存する。空の発言は送らない。成功なら true。 */
+async function postThread(projectId: string, thread: Thread, messages: ChatMessage[]): Promise<boolean> {
+  const items = messages.filter((m) => m.content.trim() !== '');
+  if (items.length === 0) return true;
+  try {
+    const res = await fetch('/api/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId, thread, messages: items }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 async function readJson(res: Response): Promise<Record<string, unknown> | null> {
   const body: unknown = await res.json().catch(() => null);
@@ -55,20 +109,31 @@ function asCycle(x: unknown): Cycle | null {
  * AI が誘導して Plan を決める画面 (EXP-009)。
  * 最初の一言は画面で作る (API を呼ばない)。答えるたびに /api/plan/chat が Plan を返し、欄を直接直すこともできる。
  */
-export function PlanPanel({ project, initialPlan, cycleId: initialCycleId, onSaved }: {
+export function PlanPanel({ project, initialPlan, cycleId: initialCycleId, onSaved, initialMessages }: {
   project: Project;
   initialPlan: PlanDraft;
   cycleId: string | null;
   onSaved?(cycleId: string): void;
+  /** 保存されている thread plan の会話 (EXP-010)。あれば最初の一言の代わりに続きを出す。 */
+  initialMessages?: StoredMessage[];
 }) {
   const [plan, setPlan] = useState<PlanDraft>(initialPlan);
   const [cycleId, setCycleId] = useState<string | null>(initialCycleId);
-  const [messages, setMessages] = useState<ChatMessage[]>(() => [
-    { role: 'assistant', content: openingMessage(project, initialPlan) },
-  ]);
+  // 最初の一言は画面で作ったもの (保存しない・history にも入れない)
+  const [hasOpening] = useState(() => !initialMessages || initialMessages.length === 0);
+  const [messages, setMessages] = useState<ChatMessage[]>(() =>
+    initialMessages && initialMessages.length > 0
+      ? initialMessages.map((m) => ({ role: m.role, content: m.content }))
+      : [{ role: 'assistant', content: openingMessage(project, initialPlan) }],
+  );
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState(false);
+  // 保存中は見た目だけで示す (live region に入れない)・反映ボタンの表示名の切り替え
+  const [saving, setSaving] = useState(false);
+  const [reflecting, setReflecting] = useState(false);
+  // 読み込んだ会話の件数 (この後ろに「ここから続き」を出す)
+  const [loadedCount] = useState(() => initialMessages?.length ?? 0);
   // 上限 (429) のお知らせ・保存や登録の結果 (role="status")
   const [notice, setNotice] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -88,6 +153,90 @@ export function PlanPanel({ project, initialPlan, cycleId: initialCycleId, onSav
     focusAfterAdd.current = null;
   }, [plan.kpis.length, plan.kdis.length]);
 
+  // 保存の直列化: 実行中の保存があれば最新の Plan だけを待たせる (重ねて PUT しない)
+  const cycleIdRef = useRef<string | null>(initialCycleId);
+  const lastSavedRef = useRef<string>(JSON.stringify(initialPlan));
+  const inFlightRef = useRef<Promise<string | null> | null>(null);
+  const queuedRef = useRef<PlanDraft | null>(null);
+
+  /** 1 回 PUT する。cycle の id を返す (失敗は null・状態は status に出す)。 */
+  // 読み上げは失敗と、状態が変わった後の最初の「保存済み」だけ (自動保存のたびに読まない)
+  const saveStateRef = useRef<'none' | 'saved' | 'failed'>('none');
+  const failSave = (message: string) => {
+    saveStateRef.current = 'failed';
+    setStatus(message);
+  };
+  const putCycle = async (p: PlanDraft): Promise<string | null> => {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/cycles', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: project.id, cycleId: cycleIdRef.current, plan: p, phase: 'plan' }),
+      });
+      if (!res.ok) {
+        failSave(res.status === 503 ? DB_NOT_CONFIGURED : `${SAVE_FAILED} (${res.status})`);
+        return null;
+      }
+      const cycle = asCycle((await readJson(res))?.cycle);
+      if (!cycle) {
+        failSave(SAVE_FAILED);
+        return null;
+      }
+      cycleIdRef.current = cycle.id;
+      lastSavedRef.current = JSON.stringify(p);
+      setCycleId(cycle.id);
+      if (saveStateRef.current !== 'saved') setStatus(SAVED);
+      saveStateRef.current = 'saved';
+      onSaved?.(cycle.id);
+      return cycle.id;
+    } catch {
+      failSave(SAVE_FAILED);
+      return null;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** 保存する。実行中なら最新の Plan を待たせ、待ちが全部終わった時点の結果を返す。 */
+  const persist = (p: PlanDraft): Promise<string | null> => {
+    if (inFlightRef.current) {
+      queuedRef.current = p;
+      return inFlightRef.current;
+    }
+    const run = (async () => {
+      let result = await putCycle(p);
+      while (queuedRef.current) {
+        const q = queuedRef.current;
+        queuedRef.current = null;
+        result = await putCycle(q);
+      }
+      inFlightRef.current = null;
+      return result;
+    })();
+    inFlightRef.current = run;
+    return run;
+  };
+
+  // 欄が変わったら (本人の入力・AI の反映) 1 秒待って自動で保存する
+  useEffect(() => {
+    if (JSON.stringify(plan) === lastSavedRef.current) return;
+    const timer = setTimeout(() => {
+      if (JSON.stringify(plan) !== lastSavedRef.current) void persist(plan);
+    }, AUTOSAVE_MS);
+    return () => clearTimeout(timer);
+    // persist は ref だけを使うので plan の変化だけで張り直す
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan]);
+
+  /** 1 往復を thread plan に保存する (待たない・失敗は status に出す)。 */
+  const saveExchange = (pair: ChatMessage[]) => {
+    // Plan の保存の status と分ける (次の自動保存で上書きされないように会話側の alert に出す)
+    void postThread(project.id, 'plan', pair).then((ok) => {
+      if (!ok) setChatError(MESSAGES_SAVE_FAILED);
+    });
+  };
+
   const next = nextField(plan);
   const events = planToEvents(plan, cycleId ?? 'unsaved');
 
@@ -95,7 +244,7 @@ export function PlanPanel({ project, initialPlan, cycleId: initialCycleId, onSav
     e.preventDefault();
     const text = input.trim();
     if (!text || sending) return;
-    const history = messages.slice(1);
+    const history = toHistory(hasOpening ? messages.slice(1) : messages);
     setMessages((prev) => [...prev, { role: 'user', content: text }]);
     setInput('');
     setSending(true);
@@ -127,6 +276,7 @@ export function PlanPanel({ project, initialPlan, cycleId: initialCycleId, onSav
       const reply = typeof body?.reply === 'string' ? body.reply : '';
       if (reply) setMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
       if (body?.plan) setPlan((prev) => asPlan(body.plan, prev));
+      saveExchange([{ role: 'user', content: text }, { role: 'assistant', content: reply }]);
     } catch {
       setChatError('返事を受け取れませんでした');
     } finally {
@@ -134,47 +284,71 @@ export function PlanPanel({ project, initialPlan, cycleId: initialCycleId, onSav
     }
   };
 
-  /** 保存して cycle の id を返す (失敗は null・お知らせは status に出す)。 */
-  const save = async (announce: boolean): Promise<string | null> => {
+  /** 通常のチャット (thread chat) の直近の会話から Plan の欄を埋める (EXP-010 H3)。 */
+  const reflectChat = async () => {
+    if (sending) return;
+    setSending(true);
+    setReflecting(true);
+    setNotice(null);
+    setChatError(null);
     try {
-      const res = await fetch('/api/cycles', {
-        method: 'PUT',
+      const loaded = await fetchThread(project.id, 'chat');
+      if (!loaded.ok) {
+        setChatError(loaded.status === 503 ? DB_NOT_CONFIGURED : `チャットの会話を読み込めませんでした (${loaded.status})`);
+        return;
+      }
+      if (loaded.messages.length === 0) {
+        setNotice(NO_CHAT);
+        return;
+      }
+      const history = toHistory(loaded.messages.slice(-REFLECT_HISTORY).map((m) => ({ role: m.role, content: m.content })));
+      const res = await fetch('/api/plan/chat', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: project.id, cycleId, plan, phase: 'plan' }),
+        body: JSON.stringify({
+          project: { name: project.name, category: project.category, purpose: project.purpose },
+          plan,
+          history,
+          message: REFLECT_MESSAGE,
+        }),
       });
+      if (res.status === 429) {
+        const body: unknown = await res.json().catch(() => null);
+        setNotice(quotaNotice(res.status, body));
+        return;
+      }
       if (!res.ok) {
-        setStatus(res.status === 503 ? DB_NOT_CONFIGURED : `Plan を保存できませんでした (${res.status})`);
-        return null;
+        setChatError(`返事を受け取れませんでした (${res.status})`);
+        return;
       }
-      const cycle = asCycle((await readJson(res))?.cycle);
-      if (!cycle) {
-        setStatus('Plan を保存できませんでした');
-        return null;
-      }
-      setCycleId(cycle.id);
-      if (announce) setStatus('Plan を保存しました');
-      onSaved?.(cycle.id);
-      return cycle.id;
+      const body = await readJson(res);
+      const reply = typeof body?.reply === 'string' ? body.reply : '';
+      const pair: ChatMessage[] = [{ role: 'user', content: REFLECT_MESSAGE }];
+      if (reply) pair.push({ role: 'assistant', content: reply });
+      setMessages((prev) => [...prev, ...pair]);
+      if (body?.plan) setPlan((prev) => asPlan(body.plan, prev));
+      setNotice(REFLECTED);
+      saveExchange(pair);
     } catch {
-      setStatus('Plan を保存できませんでした');
-      return null;
+      setChatError('返事を受け取れませんでした');
+    } finally {
+      setSending(false);
+      setReflecting(false);
     }
   };
 
   const onSave = async () => {
     if (busy) return;
     setBusy(true);
-    setStatus(null);
-    await save(true);
+    await persist(plan);
     setBusy(false);
   };
 
   const onRegister = async () => {
     if (busy || events.length === 0) return;
     setBusy(true);
-    setStatus(null);
     try {
-      const id = cycleId ?? (await save(false));
+      const id = cycleIdRef.current ?? (await persist(plan));
       if (!id) return;
       const res = await fetch('/api/calendar/create', {
         method: 'POST',
@@ -288,11 +462,20 @@ export function PlanPanel({ project, initialPlan, cycleId: initialCycleId, onSav
       <div className="flex flex-col gap-2 p-3 rounded-lg bg-white border border-gray-300">
         <div className={`max-h-72 overflow-y-auto flex flex-col gap-2 rounded ${focusRing}`} role="log" aria-label="Plan の会話" tabIndex={0}>
           {messages.map((m, i) => (
-            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[90%] p-2 rounded-lg text-sm ${m.role === 'user' ? 'bg-blue-600 text-white whitespace-pre-wrap' : 'bg-gray-100 text-gray-900'}`}>
-                {m.role === 'assistant' ? <MessageContent text={m.content} /> : m.content}
+            <Fragment key={i}>
+              <div className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[90%] p-2 rounded-lg text-sm ${m.role === 'user' ? 'bg-blue-600 text-white whitespace-pre-wrap' : 'bg-gray-100 text-gray-900'}`}>
+                  {m.role === 'assistant' ? <MessageContent text={m.content} /> : m.content}
+                </div>
               </div>
-            </div>
+              {loadedCount > 0 && i === loadedCount - 1 && (
+                <div className="flex items-center gap-2 text-xs text-gray-700">
+                  <span aria-hidden="true" className="flex-1 border-t border-gray-400" />
+                  ここから続き
+                  <span aria-hidden="true" className="flex-1 border-t border-gray-400" />
+                </div>
+              )}
+            </Fragment>
           ))}
           {sending && <p className="text-sm text-gray-700">考え中...</p>}
           <div ref={chatEndRef} />
@@ -312,6 +495,10 @@ export function PlanPanel({ project, initialPlan, cycleId: initialCycleId, onSav
             送信
           </button>
         </form>
+        <button type="button" onClick={() => void reflectChat()} aria-disabled={sending ? 'true' : undefined}
+          className={`self-start text-sm px-3 py-1 rounded border border-blue-700 bg-white text-blue-800 font-bold hover:bg-blue-50 aria-disabled:opacity-50 ${focusRing}`}>
+          <span aria-hidden="true">💬</span> {reflecting ? '反映中…' : 'チャットの壁打ちを Plan に反映'}
+        </button>
       </div>
 
       <div className="flex flex-col gap-2">
@@ -329,6 +516,8 @@ export function PlanPanel({ project, initialPlan, cycleId: initialCycleId, onSav
           className={`px-3 py-2 rounded border border-green-700 bg-white text-green-800 font-bold hover:bg-green-50 disabled:opacity-50 aria-disabled:opacity-50 ${focusRing}`}>
           <span aria-hidden="true">📅</span> 行動をカレンダーに登録
         </button>
+        {/* 保存中は見た目だけ (live region の外)。読み上げは下の status の失敗・最初の保存済みだけ */}
+        <span className="self-center text-sm text-gray-700">{saving ? SAVING : ''}</span>
       </div>
       <p id={`plan-${project.id}-register-hint`} className="text-xs text-gray-700">
         日付・開始・終了がそろった行動があると登録できます
@@ -340,22 +529,30 @@ export function PlanPanel({ project, initialPlan, cycleId: initialCycleId, onSav
 
 /** 選んだプロジェクトの最新の cycle を 1 回読み、PlanPanel を出す (EXP-009)。page.tsx で key={project.id} を付ける。 */
 export function ProjectPlanTab({ project, onSaved }: { project: Project; onSaved?(cycleId: string): void }) {
-  const [state, setState] = useState<{ status: 'loading' } | { status: 'ready'; cycle: Cycle | null } | { status: 'error'; message: string }>(
-    { status: 'loading' },
-  );
+  const [state, setState] = useState<
+    { status: 'loading' } | { status: 'ready'; cycle: Cycle | null; messages: StoredMessage[] } | { status: 'error'; message: string }
+  >({ status: 'loading' });
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(`/api/cycles?projectId=${encodeURIComponent(project.id)}`);
+        // cycle と thread plan の会話を並べて読む。会話が読めない時 (503 など) は最初から始める
+        const messagesTask = fetchThread(project.id, 'plan').then(
+          (r) => (r.ok ? r.messages : []),
+          () => [] as StoredMessage[],
+        );
+        const [res, messages] = await Promise.all([
+          fetch(`/api/cycles?projectId=${encodeURIComponent(project.id)}`),
+          messagesTask,
+        ]);
         if (cancelled) return;
         if (!res.ok) {
           setState({ status: 'error', message: res.status === 503 ? DB_NOT_CONFIGURED : `Plan を読み込めませんでした (${res.status})` });
           return;
         }
         const body = await readJson(res);
-        if (!cancelled) setState({ status: 'ready', cycle: asCycle(body?.cycle) });
+        if (!cancelled) setState({ status: 'ready', cycle: asCycle(body?.cycle), messages });
       } catch {
         if (!cancelled) setState({ status: 'error', message: 'Plan を読み込めませんでした' });
       }
@@ -377,6 +574,7 @@ export function ProjectPlanTab({ project, onSaved }: { project: Project; onSaved
           initialPlan={state.cycle?.plan ?? EMPTY_PLAN}
           cycleId={state.cycle?.id ?? null}
           onSaved={onSaved}
+          initialMessages={state.messages}
         />
       )}
     </div>

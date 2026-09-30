@@ -41,3 +41,16 @@ create table if not exists cycles (
 );
 
 create index if not exists cycles_owner_project_updated_idx on cycles (owner, project_id, updated_at desc);
+
+-- EXP-010: 会話の保存 (thread は plan か chat)。続きから読み込むため
+create table if not exists messages (
+  id uuid primary key default gen_random_uuid(),
+  owner text not null,
+  project_id uuid not null references projects (id) on delete cascade,
+  thread text not null,
+  role text not null,
+  content text not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists messages_owner_project_thread_created_idx on messages (owner, project_id, thread, created_at);

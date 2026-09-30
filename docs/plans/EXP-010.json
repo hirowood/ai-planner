@@ -1,0 +1,361 @@
+{
+  "project": "ai-planner — EXP-010 会話の保存と続き",
+  "unit": "時間",
+  "note": "EXP-009 の反省を入れた: started_at を起動の前に記録・画面を PlanPanel と page の 2 本に分ける。ended_at = 親が通知を受けた時刻。",
+  "constraints": [
+    "commit は親だけ",
+    "移行は本人",
+    "ログは perf の項目だけ",
+    "自分の files 以外を書かない",
+    "/api/chat と /api/plan/chat のプロンプトを変えない"
+  ],
+  "tasks": [
+    {
+      "id": "PRE",
+      "wbs": "1.1",
+      "name": "事前登録",
+      "goal": "固定",
+      "deliverable": "evidence/EXP-010/request.md (63c2bda)",
+      "done_when": "単独の commit",
+      "owner": "main",
+      "deps": [],
+      "files": [
+        "evidence/EXP-010/request.md"
+      ],
+      "reads": [],
+      "optimistic": 0.1,
+      "likely": 0.2,
+      "pessimistic": 0.4,
+      "status": "done"
+    },
+    {
+      "id": "TST",
+      "wbs": "2.1",
+      "name": "テストを先に書く (L1〜L4)",
+      "goal": "仕様だけから",
+      "deliverable": "lib/messages.test.ts・lib/repo-messages.test.ts・app/api/messages/route.test.ts・PlanPanel の続き表示のテスト",
+      "done_when": "L1〜L4 ごとに 1 件以上",
+      "owner": "test-writer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "lib/messages.test.ts",
+        "lib/repo-messages.test.ts",
+        "app/api/messages/route.test.ts",
+        "app/components/PlanPanel.resume.test.tsx"
+      ],
+      "reads": [
+        "evidence/EXP-010/request.md",
+        "lib/repo-cycles.test.ts",
+        "app/api/cycles/route.test.ts",
+        "app/components/PlanPanel.test.tsx"
+      ],
+      "optimistic": 0.2,
+      "likely": 0.4,
+      "pessimistic": 0.8,
+      "status": "done",
+      "started_at": "2026-09-30T12:20:11Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T12:29:28Z",
+      "actual_duration": 0.155
+    },
+    {
+      "id": "LIB",
+      "wbs": "2.2",
+      "name": "lib/messages.ts",
+      "goal": "検査",
+      "deliverable": "lib/messages.ts",
+      "done_when": "tsc・export が §2 と一致",
+      "owner": "backend-implementer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "lib/messages.ts"
+      ],
+      "reads": [
+        "evidence/EXP-010/request.md"
+      ],
+      "optimistic": 0.05,
+      "likely": 0.1,
+      "pessimistic": 0.3,
+      "status": "done",
+      "started_at": "2026-09-30T12:20:11Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T12:21:05Z",
+      "actual_duration": 0.015
+    },
+    {
+      "id": "SRV",
+      "wbs": "2.3",
+      "name": "messages の表・問い合わせ・API",
+      "goal": "schema・repo・/api/messages",
+      "deliverable": "db/schema.sql・lib/repo.ts・app/api/messages/route.ts・scripts/db-migrate.mjs",
+      "done_when": "tsc・owner で絞る",
+      "owner": "backend-implementer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "db/schema.sql",
+        "lib/repo.ts",
+        "app/api/messages/route.ts",
+        "scripts/db-migrate.mjs"
+      ],
+      "reads": [
+        "evidence/EXP-010/request.md",
+        "app/api/cycles/route.ts"
+      ],
+      "optimistic": 0.15,
+      "likely": 0.3,
+      "pessimistic": 0.6,
+      "status": "done",
+      "started_at": "2026-09-30T12:20:11Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T12:22:03Z",
+      "actual_duration": 0.031
+    },
+    {
+      "id": "UIP",
+      "wbs": "2.4",
+      "name": "PlanPanel: 続き・自動保存・反映",
+      "goal": "Plan の会話の続き・欄の自動保存・チャットの反映ボタン",
+      "deliverable": "app/components/PlanPanel.tsx",
+      "done_when": "tsc・既存の PlanPanel テストが通る",
+      "owner": "frontend-implementer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "app/components/PlanPanel.tsx"
+      ],
+      "reads": [
+        "evidence/EXP-010/request.md"
+      ],
+      "optimistic": 0.2,
+      "likely": 0.4,
+      "pessimistic": 0.8,
+      "status": "done",
+      "started_at": "2026-09-30T12:20:11Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T12:29:02Z",
+      "actual_duration": 0.147
+    },
+    {
+      "id": "UIC",
+      "wbs": "2.5",
+      "name": "通常のチャット: プロジェクトごとの続きと保存",
+      "goal": "選んだプロジェクトの thread chat を読み込み・保存",
+      "deliverable": "app/page.tsx",
+      "done_when": "tsc・既存のチャットの振る舞いは選んでいない間は同じ",
+      "owner": "frontend-implementer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "app/page.tsx"
+      ],
+      "reads": [
+        "evidence/EXP-010/request.md",
+        "app/components/ProjectPanel.tsx"
+      ],
+      "optimistic": 0.15,
+      "likely": 0.3,
+      "pessimistic": 0.6,
+      "status": "done",
+      "started_at": "2026-09-30T12:20:11Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T12:28:30Z",
+      "actual_duration": 0.139
+    },
+    {
+      "id": "RUN",
+      "wbs": "3.1",
+      "name": "テスト・型・lint・build",
+      "goal": "生の結果",
+      "deliverable": "件数",
+      "done_when": "4 つ",
+      "owner": "main",
+      "deps": [
+        "TST",
+        "LIB",
+        "SRV",
+        "UIP",
+        "UIC"
+      ],
+      "files": [],
+      "reads": [
+        "app/",
+        "lib/"
+      ],
+      "optimistic": 0.05,
+      "likely": 0.1,
+      "pessimistic": 0.3,
+      "status": "done",
+      "started_at": "2026-09-30T12:30:07Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T12:30:33Z",
+      "actual_duration": 0.007
+    },
+    {
+      "id": "REV",
+      "wbs": "3.2",
+      "name": "レビュー (安全・a11y)",
+      "goal": "別の目",
+      "deliverable": "blocking/warn/ok",
+      "done_when": "ファイル:行",
+      "owner": "generic-security-reviewer + a11y-reviewer",
+      "deps": [
+        "SRV",
+        "UIP",
+        "UIC"
+      ],
+      "files": [],
+      "reads": [
+        "app/api/messages/route.ts",
+        "lib/repo.ts",
+        "app/components/PlanPanel.tsx",
+        "app/page.tsx"
+      ],
+      "optimistic": 0.1,
+      "likely": 0.2,
+      "pessimistic": 0.4,
+      "status": "done",
+      "started_at": "2026-09-30T12:29:02Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T12:31:30Z",
+      "actual_duration": 0.041
+    },
+    {
+      "id": "MUT",
+      "wbs": "3.3",
+      "name": "計器の確認",
+      "goal": "owner の絞り込み・件数と字数の上限を壊す",
+      "deliverable": "赤の数",
+      "done_when": "壊した数と赤が合う",
+      "owner": "main",
+      "deps": [
+        "RUN"
+      ],
+      "files": [
+        "lib/repo.ts",
+        "lib/messages.ts"
+      ],
+      "reads": [],
+      "optimistic": 0.05,
+      "likely": 0.1,
+      "pessimistic": 0.3,
+      "status": "done",
+      "started_at": "2026-09-30T12:30:33Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T12:30:43Z",
+      "actual_duration": 0.003
+    },
+    {
+      "id": "FIX",
+      "wbs": "3.4",
+      "name": "差し戻し (owner の insert・a11y blocking 1 + warn・安全 warn 2)",
+      "goal": "計画外の直し",
+      "deliverable": "repo・page・PlanPanel・MessageContent",
+      "done_when": "blocking 0・全件緑",
+      "owner": "backend-implementer + frontend-implementer + main",
+      "deps": [
+        "REV"
+      ],
+      "files": [
+        "lib/repo.ts",
+        "app/page.tsx",
+        "app/components/PlanPanel.tsx",
+        "app/components/MessageContent.tsx"
+      ],
+      "reads": [],
+      "status": "done",
+      "progress": 100,
+      "started_at": "2026-09-30T12:29:40Z",
+      "ended_at": "2026-09-30T12:41:18Z",
+      "timing_note": "started_at = SRV へ差し戻した時刻 (TST の通知直後)。ended_at = 親が最後の 1 行 (履歴を 20 件に絞る) を入れて全件を回した時刻",
+      "actual_duration": 0.194
+    },
+    {
+      "id": "LAB",
+      "wbs": "4.1",
+      "name": "lab.md と commit",
+      "goal": "L1〜L5",
+      "deliverable": "evidence/EXP-010/lab.md",
+      "done_when": "blocking 0",
+      "owner": "main",
+      "deps": [
+        "RUN",
+        "REV",
+        "MUT",
+        "FIX"
+      ],
+      "files": [
+        "evidence/EXP-010/lab.md"
+      ],
+      "reads": [],
+      "optimistic": 0.05,
+      "likely": 0.1,
+      "pessimistic": 0.3,
+      "status": "done",
+      "started_at": "2026-09-30T12:42:03Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T12:42:03Z",
+      "actual_duration": 0.0
+    },
+    {
+      "id": "MIGRATE",
+      "wbs": "5.0",
+      "name": "本人: 移行 (messages)",
+      "goal": "表を足す",
+      "deliverable": "4 つの表",
+      "done_when": "出た",
+      "owner": "本人",
+      "deps": [
+        "LAB"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.02,
+      "likely": 0.05,
+      "pessimistic": 24
+    },
+    {
+      "id": "LOCAL",
+      "wbs": "5.1",
+      "name": "本人のローカル確認",
+      "goal": "続きから会話",
+      "deliverable": "一言・点数",
+      "done_when": "使った",
+      "owner": "本人",
+      "deps": [
+        "MIGRATE"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.2,
+      "likely": 0.5,
+      "pessimistic": 24
+    },
+    {
+      "id": "RETRO",
+      "wbs": "6.1",
+      "name": "振り返り (EXP-008〜010)",
+      "goal": "retro.py と教訓",
+      "deliverable": "cycle-lessons.md",
+      "done_when": "1 行ずつ",
+      "owner": "main",
+      "deps": [
+        "LOCAL"
+      ],
+      "files": [
+        "docs/cycle-lessons.md"
+      ],
+      "reads": [],
+      "optimistic": 0.1,
+      "likely": 0.2,
+      "pessimistic": 0.4
+    }
+  ]
+}

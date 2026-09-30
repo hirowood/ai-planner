@@ -74,13 +74,20 @@ function AppContent() {
   const workspace = useProjectWorkspace(Boolean(session));
   // 選んだプロジェクトの中の切り替え (EXP-009)。既定は Plan
   const [projectTab, setProjectTab] = useState<'plan' | 'notes'>('plan');
+  // 選んだプロジェクトの thread "chat" の読み込み中 (EXP-010)
+  const [historyLoading, setHistoryLoading] = useState(false);
+  // いま会話が属するプロジェクト。遅れて届いた古い読み込みを捨て、保存先を決める
+  const chatProjectId = useRef<string | null>(null);
+  // 会話の読み込み・保存の失敗 (上限のお知らせとは別の記号で出す)。次に送ったときに消す
+  const [chatProblem, setChatProblem] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // 初回表示の計測 (measure → improve ループ M0): 最初の予定取得の完了時に 1 回だけ出す
   const initialLoadLogged = useRef(false);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    messagesEndRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth' });
   }, [messages]);
 
   useEffect(() => {
@@ -88,6 +95,57 @@ function AppContent() {
       void fetchEvents();
     }
   }, [session]);
+
+  // プロジェクトを選び直したら、その会話に入れ替える。選んでいない間は画面の会話をそのまま残す (EXP-010)
+  const selectedProjectId = workspace.selectedId;
+  useEffect(() => {
+    chatProjectId.current = selectedProjectId;
+    if (!selectedProjectId) {
+      setHistoryLoading(false);
+      return;
+    }
+    const projectId = selectedProjectId;
+    setHistoryLoading(true);
+    setPendingPlan(null);
+    void (async () => {
+      let loaded: Message[] | null = null;
+      try {
+        const res = await fetch(`/api/messages?projectId=${encodeURIComponent(projectId)}&thread=chat`);
+        if (res.ok) {
+          const body: unknown = await res.json().catch(() => null);
+          const list = (body as { messages?: unknown } | null)?.messages;
+          if (Array.isArray(list)) {
+            loaded = list
+              .filter((m): m is Message =>
+                typeof m === 'object' && m !== null &&
+                ((m as Message).role === 'user' || (m as Message).role === 'assistant') &&
+                typeof (m as Message).content === 'string')
+              .map((m) => ({ role: m.role, content: m.content }));
+          }
+        }
+      } catch (err: unknown) {
+        console.error("Failed to load chat messages:", err);
+      }
+      if (chatProjectId.current !== projectId) return;
+      setMessages(loaded ?? []);
+      setChatProblem(loaded === null ? '会話を読み込めませんでした' : null);
+      setHistoryLoading(false);
+    })();
+  }, [selectedProjectId]);
+
+  const saveChat = async (projectId: string, pair: Message[]) => {
+    try {
+      const res = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId, thread: 'chat', messages: pair }),
+      });
+      if (!res.ok) setChatProblem('会話を保存できませんでした');
+    } catch (err: unknown) {
+      console.error("Failed to save chat messages:", err);
+      setChatProblem('会話を保存できませんでした');
+    }
+  };
 
   const fetchEvents = async () => {
     try {
@@ -112,8 +170,10 @@ function AppContent() {
 
   // via: 時間の入力画面から送ったときだけ "time_dialog" (EXP-006・サーバは種類だけを数える)
   const handleSendMessage = async (text: string, via?: 'time_dialog') => {
-    if (!text.trim() || isLoading) return;
+    if (!text.trim() || isLoading || historyLoading) return;
     setTimeDialogOpen(false);
+    // 送った時点のプロジェクトへ保存する (選んでいなければ保存しない)
+    const saveTo = chatProjectId.current;
 
     const userMessage: Message = { role: 'user', content: text };
     setMessages((prev) => [...prev, userMessage]);
@@ -121,6 +181,7 @@ function AppContent() {
     setIsLoading(true);
     setPendingPlan(null);
     setNotice(null);
+    setChatProblem(null);
 
     try {
       const response = await fetch('/api/chat', {
@@ -128,7 +189,8 @@ function AppContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           message: userMessage.content, 
-          history: messages,
+          // 保存した会話は最大 100 件読み込むので、送るのは直近 20 件だけ (EXP-010 の安全レビュー・サーバは直近 10 件を使う)
+          history: messages.slice(-20),
           schedule: events,
           ...(via ? { via } : {}),
         }),
@@ -181,6 +243,12 @@ function AppContent() {
         } catch (e: unknown) {
           console.error("JSON parse error:", e);
         }
+      }
+
+      // 1 往復ごとに保存する。選び直した・外した後は保存しない (EXP-010)
+      const assistantContent = stripTimeMarker(aiReply);
+      if (saveTo && chatProjectId.current === saveTo && assistantContent.trim()) {
+        void saveChat(saveTo, [userMessage, { role: 'assistant', content: assistantContent }]);
       }
 
     } catch (error: unknown) {
@@ -305,7 +373,11 @@ function AppContent() {
           )}
         </header>
 
-        <main className="flex-1 overflow-y-auto p-4 space-y-4">
+        <main tabIndex={0} aria-label="会話" className="flex-1 overflow-y-auto p-4 space-y-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500">
+           {workspace.selected && (
+             <p className="text-xs text-gray-600"><span aria-hidden="true">💬</span> 『{workspace.selected.name}』の壁打ち (保存されます)</p>
+           )}
+           <p role="status" className="text-sm text-gray-500">{historyLoading ? '会話を読み込み中…' : ''}</p>
            {messages.map((msg, i) => (
              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                <div className={`max-w-[85%] p-3 rounded-lg shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white whitespace-pre-wrap' : 'bg-gray-100'}`}>
@@ -325,7 +397,10 @@ function AppContent() {
            {isLoading && <div className="text-gray-400 animate-pulse">考え中...</div>}
            <div role="status">
              {notice && (
-               <p className="p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-900">⏳ {notice}</p>
+               <p className="p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-900"><span aria-hidden="true">⏳</span> {notice}</p>
+             )}
+             {chatProblem && (
+               <p className="p-3 rounded-lg bg-red-50 border border-red-300 text-red-900"><span aria-hidden="true">⚠️</span> {chatProblem}</p>
              )}
            </div>
            <div ref={messagesEndRef} />
