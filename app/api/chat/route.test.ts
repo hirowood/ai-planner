@@ -9,7 +9,7 @@ vi.mock("@google/generative-ai", async () => (await import("../../../test/mocks/
 
 import { POST } from "./route";
 
-const ALLOWED = ["calendar_ms", "first_chunk_ms", "gemini_ms", "route", "status", "total_ms"];
+const ALLOWED = ["calendar_ms", "first_chunk_ms", "gemini_ms", "history_len", "plan_proposed", "route", "status", "total_ms"];
 const BODY_CANARY = "canary-message-body-7f3a";
 const REPLY_CANARY = "canary-gemini-reply-91c2";
 const TOKEN_CANARY = "fake-token-canary-5d1e";
@@ -108,12 +108,38 @@ describe("POST /api/chat — 計測点", () => {
     expect(line.gemini_ms as number).toBeGreaterThanOrEqual(40);
   });
 
+  it("history_len は会話のメッセージ数 (数だけ)", async () => {
+    const history = [
+      { role: "user", content: "a" },
+      { role: "assistant", content: "b" },
+      { role: "user", content: "c" },
+    ];
+    const res = await POST(post({ message: BODY_CANARY, history }));
+    await res.text();
+    expect(perf.parsed()[0]).toMatchObject({ history_len: 3 });
+  });
+
+  it("plan_proposed: ```json の囲みがチャンクの境目で割れても true", async () => {
+    geminiState.chunks = ["プランです。\n``", "`json\n[{\"summary\":\"x\"}]\n``", "`\nどうですか"];
+    const res = await POST(post({ message: "hi", history: [] }));
+    await res.text();
+    expect(perf.parsed()[0]).toMatchObject({ status: 200, plan_proposed: true, history_len: 0 });
+  });
+
+  it("plan_proposed: 予定案が無ければ false", async () => {
+    geminiState.chunks = ["何をしたいですか?", " なぜですか?"];
+    const res = await POST(post({ message: "hi", history: [] }));
+    await res.text();
+    expect(perf.parsed()[0]).toMatchObject({ status: 200, plan_proposed: false });
+  });
+
   it("ストリームの途中で失敗したら [perf] の status は 500", async () => {
     geminiState.chunks = ["a", "b"];
     geminiState.failAfterChunks = 1;
     const res = await POST(post({ message: "hi", history: [] }));
     await res.text().catch(() => undefined);
     expect(perf.parsed()).toEqual([expect.objectContaining({ route: "api/chat", status: 500 })]);
+    expect(perf.parsed()[0]).not.toHaveProperty("plan_proposed"); // 途中で切れた返答では判定しない
   });
 
   it("ログのどこにも本文・返答・トークンが出ない", async () => {

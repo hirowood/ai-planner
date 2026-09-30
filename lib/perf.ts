@@ -1,6 +1,6 @@
-// --- 計測点 (measure → improve ループ M0 / EXP-001) ---
+// --- 計測点 (measure → improve ループ M0 / EXP-001 / UX PDCA C0) ---
 // 1 リクエストにつき `[perf]` の 1 行と `Server-Timing` ヘッダを出す。
-// 出してよいのは下の 6 項目だけ (経路名・状態・所要時間)。
+// 出してよいのは下の項目だけ (経路名・状態・所要時間・数・真偽)。
 // メッセージ本文・予定の内容・セッション・トークンは、この型に入らないので出せない。
 
 export type PerfPart = "gemini_ms" | "calendar_ms";
@@ -13,7 +13,13 @@ export type PerfLine = {
   calendar_ms?: number;
   // 最初のチャンクを書き出すまで (EXP-001 で追加)。全文を 1 回で返す応答では total_ms と同じ
   first_chunk_ms?: number;
+  // 以下は UX PDCA C0 で追加 (docs/ux-pdca-plan.md)。数と真偽だけで、中身は持たない
+  history_len?: number; // そのリクエストまでの会話のメッセージ数
+  plan_proposed?: boolean; // 返答に予定案 (```json ブロック) が含まれたか
 };
+
+// 真偽を出すための検査だけに使う。ここで見た本文はどこにも残さない
+export type PerfFlag = { name: "plan_proposed"; pattern: RegExp };
 
 const round = (ms: number): number => Math.round(ms * 10) / 10;
 
@@ -23,6 +29,8 @@ export function formatPerfLine(line: PerfLine): string {
   if (line.gemini_ms !== undefined) out.gemini_ms = round(line.gemini_ms);
   if (line.calendar_ms !== undefined) out.calendar_ms = round(line.calendar_ms);
   if (line.first_chunk_ms !== undefined) out.first_chunk_ms = round(line.first_chunk_ms);
+  if (line.history_len !== undefined) out.history_len = line.history_len;
+  if (line.plan_proposed !== undefined) out.plan_proposed = line.plan_proposed;
   return `[perf] ${JSON.stringify(out)}`;
 }
 
@@ -33,15 +41,22 @@ export function startPerf(route: string, parts: PerfPart[] = []) {
   for (const p of parts) acc[p] = 0;
   // ストリーム応答を返したら、`[perf]` はストリームを閉じたときに出す (finish では出さない)
   let deferred = false;
+  // リクエストの時点で分かる数 (例 history_len)。set() で入れる
+  const known: Pick<PerfLine, "history_len"> = {};
 
   const line = (status: number, extra: Partial<PerfLine> = {}): PerfLine => {
-    const out: PerfLine = { route, status, total_ms: performance.now() - t0, ...extra };
+    const out: PerfLine = { route, status, total_ms: performance.now() - t0, ...known, ...extra };
     if (acc.gemini_ms !== undefined) out.gemini_ms = acc.gemini_ms;
     if (acc.calendar_ms !== undefined) out.calendar_ms = acc.calendar_ms;
     return out;
   };
 
   return {
+    /** リクエストの時点で分かる数を記録する (数だけ。中身は渡せない型にしてある)。 */
+    set(fields: Pick<PerfLine, "history_len">): void {
+      if (fields.history_len !== undefined) known.history_len = fields.history_len;
+    },
+
     /** 外部呼び出し 1 回を計測して `part` に加算する。 */
     async time<T>(part: PerfPart, fn: () => Promise<T>): Promise<T> {
       const s = performance.now();
@@ -73,12 +88,17 @@ export function startPerf(route: string, parts: PerfPart[] = []) {
      *   (HTTP の status は既に 200 で送ってあるので、結果は `[perf]` の status で表す)
      * - ヘッダは本文より先に出るので、`Server-Timing` にはヘッダを送るまでの時間だけを載せる
      */
-    streamText(source: AsyncIterable<string>, opts: { part?: PerfPart; partStart?: number } = {}): Response {
+    streamText(
+      source: AsyncIterable<string>,
+      opts: { part?: PerfPart; partStart?: number; flag?: PerfFlag } = {},
+    ): Response {
       deferred = true;
       const encoder = new TextEncoder();
       const it = source[Symbol.asyncIterator]();
       let first: number | undefined;
       let ended = false;
+      // flag の検査のためだけに全文を持つ (チャンクの境目で目印が割れても判定できるように)。ログには出さない
+      let seen = "";
 
       const end = (status: number) => {
         if (ended) return;
@@ -88,6 +108,8 @@ export function startPerf(route: string, parts: PerfPart[] = []) {
         }
         const l = line(status);
         l.first_chunk_ms = first ?? l.total_ms;
+        if (opts.flag && status === 200) l[opts.flag.name] = opts.flag.pattern.test(seen);
+        seen = "";
         console.log(formatPerfLine(l));
       };
 
@@ -101,6 +123,7 @@ export function startPerf(route: string, parts: PerfPart[] = []) {
               return;
             }
             if (first === undefined) first = performance.now() - t0;
+            if (opts.flag) seen += value;
             controller.enqueue(encoder.encode(value));
           } catch (error: unknown) {
             end(500);

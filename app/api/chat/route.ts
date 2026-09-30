@@ -149,6 +149,9 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
       return NextResponse.json({ error: "メッセージは2000文字以内にしてください" }, { status: 400 });
     }
 
+    // 会話のメッセージ数だけを記録する (UX PDCA C0: 予定登録までの往復数を出すため)
+    perf.set({ history_len: safeBody.history.length });
+
     // 🛡️ 4. AIモデルの準備
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     const now = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
@@ -229,7 +232,12 @@ WhatとWhyが明確になったら、次に以下を質問してください。
     // これまでどおり JSON で返す。始まった後の失敗は perf.streamText がストリームを error にする
     const geminiStart = performance.now();
     const result = await chat.sendMessageStream(safePrompt);
-    return perf.streamText(textChunks(result.stream), { part: "gemini_ms", partStart: geminiStart });
+    // plan_proposed: 画面が予定案を取り出すのと同じ規則 (app/page.tsx の ```json ブロック) で真偽だけを出す
+    return perf.streamText(textChunks(result.stream), {
+      part: "gemini_ms",
+      partStart: geminiStart,
+      flag: { name: "plan_proposed", pattern: /```json\s*[\s\S]*?\s*```/ },
+    });
 
   } catch (error: unknown) {
     // 🛡️ 7. 安全なエラーハンドリング (Secure Error Handling)
