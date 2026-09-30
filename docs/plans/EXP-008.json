@@ -398,8 +398,12 @@
       "optimistic": 0.1,
       "likely": 0.2,
       "pessimistic": 0.5,
-      "status": "doing",
-      "started_at": "2026-09-30T09:15:30Z"
+      "status": "done",
+      "started_at": "2026-09-30T09:15:25Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T09:27:03Z",
+      "actual_duration": 0.194,
+      "timing_note": "started_at = PR #4 の createdAt (GitHub)。ended_at = Preview の証拠を push した時刻"
     },
     {
       "id": "RETRO",
