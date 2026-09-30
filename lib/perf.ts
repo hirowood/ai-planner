@@ -17,10 +17,12 @@ export type PerfLine = {
   history_len?: number; // そのリクエストまでの会話のメッセージ数
   plan_proposed?: boolean; // 返答に予定案 (```json ブロック) が含まれたか
   question_count?: number; // 返答に含まれる「？」「?」の数 (EXP-004)
+  time_prompted?: boolean; // 返答に時間の入力画面の目印があったか (EXP-006)
+  time_dialog_used?: boolean; // そのメッセージが時間の入力画面から送られたか (EXP-006)
 };
 
 // 真偽・数を出すための検査だけに使う。ここで見た本文はどこにも残さない
-export type PerfFlag = { name: "plan_proposed"; pattern: RegExp };
+export type PerfFlag = { name: "plan_proposed" | "time_prompted"; pattern: RegExp };
 export type PerfCount = { name: "question_count"; pattern: RegExp }; // pattern は g フラグ付き
 
 const round = (ms: number): number => Math.round(ms * 10) / 10;
@@ -34,6 +36,8 @@ export function formatPerfLine(line: PerfLine): string {
   if (line.history_len !== undefined) out.history_len = line.history_len;
   if (line.plan_proposed !== undefined) out.plan_proposed = line.plan_proposed;
   if (line.question_count !== undefined) out.question_count = line.question_count;
+  if (line.time_prompted !== undefined) out.time_prompted = line.time_prompted;
+  if (line.time_dialog_used !== undefined) out.time_dialog_used = line.time_dialog_used;
   return `[perf] ${JSON.stringify(out)}`;
 }
 
@@ -44,8 +48,8 @@ export function startPerf(route: string, parts: PerfPart[] = []) {
   for (const p of parts) acc[p] = 0;
   // ストリーム応答を返したら、`[perf]` はストリームを閉じたときに出す (finish では出さない)
   let deferred = false;
-  // リクエストの時点で分かる数 (例 history_len)。set() で入れる
-  const known: Pick<PerfLine, "history_len"> = {};
+  // リクエストの時点で分かる数・真偽 (例 history_len)。set() で入れる
+  const known: Pick<PerfLine, "history_len" | "time_dialog_used"> = {};
 
   const line = (status: number, extra: Partial<PerfLine> = {}): PerfLine => {
     const out: PerfLine = { route, status, total_ms: performance.now() - t0, ...known, ...extra };
@@ -56,8 +60,9 @@ export function startPerf(route: string, parts: PerfPart[] = []) {
 
   return {
     /** リクエストの時点で分かる数を記録する (数だけ。中身は渡せない型にしてある)。 */
-    set(fields: Pick<PerfLine, "history_len">): void {
+    set(fields: Pick<PerfLine, "history_len" | "time_dialog_used">): void {
       if (fields.history_len !== undefined) known.history_len = fields.history_len;
+      if (fields.time_dialog_used !== undefined) known.time_dialog_used = fields.time_dialog_used;
     },
 
     /** 外部呼び出し 1 回を計測して `part` に加算する。 */
@@ -93,14 +98,15 @@ export function startPerf(route: string, parts: PerfPart[] = []) {
      */
     streamText(
       source: AsyncIterable<string>,
-      opts: { part?: PerfPart; partStart?: number; flag?: PerfFlag; count?: PerfCount } = {},
+      opts: { part?: PerfPart; partStart?: number; flags?: PerfFlag[]; count?: PerfCount } = {},
     ): Response {
+      const flags = opts.flags ?? [];
       deferred = true;
       const encoder = new TextEncoder();
       const it = source[Symbol.asyncIterator]();
       let first: number | undefined;
       let ended = false;
-      // flag の検査のためだけに全文を持つ (チャンクの境目で目印が割れても判定できるように)。ログには出さない
+      // flags・count の検査のためだけに全文を持つ (チャンクの境目で目印が割れても判定できるように)。ログには出さない
       let seen = "";
 
       const end = (status: number) => {
@@ -111,7 +117,7 @@ export function startPerf(route: string, parts: PerfPart[] = []) {
         }
         const l = line(status);
         l.first_chunk_ms = first ?? l.total_ms;
-        if (opts.flag && status === 200) l[opts.flag.name] = opts.flag.pattern.test(seen);
+        if (status === 200) for (const f of flags) l[f.name] = f.pattern.test(seen);
         if (opts.count && status === 200) l[opts.count.name] = (seen.match(opts.count.pattern) ?? []).length;
         seen = "";
         console.log(formatPerfLine(l));
@@ -127,7 +133,7 @@ export function startPerf(route: string, parts: PerfPart[] = []) {
               return;
             }
             if (first === undefined) first = performance.now() - t0;
-            if (opts.flag || opts.count) seen += value;
+            if (flags.length > 0 || opts.count) seen += value;
             controller.enqueue(encoder.encode(value));
           } catch (error: unknown) {
             end(500);

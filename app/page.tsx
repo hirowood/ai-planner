@@ -5,6 +5,8 @@ import { SessionProvider, useSession, signIn, signOut } from "next-auth/react";
 import { formatPerfLine } from "../lib/perf";
 import { MessageContent } from "./components/MessageContent";
 import { quotaNotice } from "../lib/quota";
+import { hasTimeMarker, stripTimeMarker } from "../lib/time-input";
+import { TimeDialog } from "./components/TimeDialog";
 
 // --- 型定義 ---
 
@@ -62,6 +64,8 @@ function AppContent() {
   const [pendingPlan, setPendingPlan] = useState<CalendarEvent[] | null>(null);
   // 上限などのお知らせ (エラーではない)。次に送ったときに消す
   const [notice, setNotice] = useState<string | null>(null);
+  // AI が時間を聞いたときに開く入力画面 (EXP-006)
+  const [timeDialogOpen, setTimeDialogOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // 初回表示の計測 (measure → improve ループ M0): 最初の予定取得の完了時に 1 回だけ出す
@@ -98,8 +102,10 @@ function AppContent() {
     }
   };
 
-  const handleSendMessage = async (text: string) => {
+  // via: 時間の入力画面から送ったときだけ "time_dialog" (EXP-006・サーバは種類だけを数える)
+  const handleSendMessage = async (text: string, via?: 'time_dialog') => {
     if (!text.trim() || isLoading) return;
+    setTimeDialogOpen(false);
 
     const userMessage: Message = { role: 'user', content: text };
     setMessages((prev) => [...prev, userMessage]);
@@ -115,7 +121,8 @@ function AppContent() {
         body: JSON.stringify({ 
           message: userMessage.content, 
           history: messages,
-          schedule: events
+          schedule: events,
+          ...(via ? { via } : {}),
         }),
       });
       
@@ -136,9 +143,10 @@ function AppContent() {
       }
 
       // 届いた分から表示する。予定 JSON の抽出は全文がそろってから行う (これまでと同じ規則)
+      // 時間の入力画面の目印 [[time]] は画面にも履歴にも残さない (EXP-006)
       setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
       const showReply = (content: string) =>
-        setMessages((prev) => [...prev.slice(0, -1), { role: 'assistant', content }]);
+        setMessages((prev) => [...prev.slice(0, -1), { role: 'assistant', content: stripTimeMarker(content) }]);
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -151,6 +159,7 @@ function AppContent() {
       }
       aiReply += decoder.decode();
       showReply(aiReply);
+      if (hasTimeMarker(aiReply)) setTimeDialogOpen(true);
 
       const jsonMatch = aiReply.match(/```json\s*([\s\S]*?)\s*```/);
       if (jsonMatch && jsonMatch[1]) {
@@ -330,6 +339,11 @@ function AppContent() {
             <button type="submit" disabled={isLoading} className="bg-blue-600 text-white px-6 rounded font-bold hover:bg-blue-700 disabled:opacity-50">送信</button>
           </form>
         </footer>
+        <TimeDialog
+          open={timeDialogOpen}
+          onSubmit={(text) => void handleSendMessage(text, 'time_dialog')}
+          onClose={() => setTimeDialogOpen(false)}
+        />
       </div>
 
       {/* 右サイド */}
