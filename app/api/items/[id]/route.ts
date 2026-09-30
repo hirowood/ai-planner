@@ -5,7 +5,10 @@ import { startPerf } from "../../../../lib/perf";
 import { DbNotConfigured, getSql } from "../../../../lib/db";
 import { isUuid } from "../../../../lib/projects";
 import { parseItemPatch } from "../../../../lib/plan-items";
-import { deleteItem, updateItem } from "../../../../lib/repo";
+import { KGI_LOCKED, deleteItem, updateItem } from "../../../../lib/repo";
+
+// KGI は決まったら動かさない (EXP-024)
+const kgiLocked = () => NextResponse.json({ error: "KGI は決まったら変えません" }, { status: 409 });
 
 // --- 階層の項目を変える・消す (EXP-017) ---
 // owner の項目だけに触れる。他人・無い項目は 404 (有無を区別させない)。
@@ -80,6 +83,10 @@ async function handlePatch(req: Request, id: string, perf: Perf): Promise<Respon
   try {
     const sql = getSql();
     const item = await perf.time("db_ms", () => updateItem(sql, owner, id, patch));
+    if (item === KGI_LOCKED) {
+      perf.set({ row_count: 0 });
+      return kgiLocked();
+    }
     perf.set({ row_count: item ? 1 : 0 });
     if (!item) return notFound();
     return NextResponse.json({ item });
@@ -96,6 +103,10 @@ async function handleDelete(id: string, perf: Perf): Promise<Response> {
   try {
     const sql = getSql();
     const deleted = await perf.time("db_ms", () => deleteItem(sql, owner, id));
+    if (deleted === KGI_LOCKED) {
+      perf.set({ row_count: 0 });
+      return kgiLocked();
+    }
     perf.set({ row_count: deleted ? 1 : 0 });
     if (!deleted) return notFound();
     return new Response(null, { status: 204 });

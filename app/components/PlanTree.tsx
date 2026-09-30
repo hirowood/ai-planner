@@ -210,20 +210,28 @@ export function PlanTree({ items, lastParentId, onCreate, onUpdate, onDelete, on
                     {LEVEL_LABEL[n.level]}
                   </span>
                   <span className="text-gray-900 font-bold break-words">{n.title}</span>
+                  {/* KGI は決まったら動かさない (EXP-024)。変えるのは KPI・KDI・ToDo */}
+                  {n.level === 'kgi' && (
+                    <span className="text-xs text-gray-700"><span aria-hidden="true">🔒 </span>KGI は固定</span>
+                  )}
                 </div>
                 {n.target && <p className="text-sm text-gray-700 break-words">目標値: {n.target}</p>}
                 <div className="flex flex-wrap items-end gap-3">
-                  <div className="flex flex-col gap-1 text-sm text-gray-700">
-                    <label htmlFor={dueId}>期日</label>
-                    <input
-                      id={dueId}
-                      aria-label={`『${n.title}』の期日`}
-                      type="date"
-                      value={n.dueDate}
-                      onChange={(e) => changeDue(n.id, e.target.value)}
-                      className={inputClass}
-                    />
-                  </div>
+                  {n.level === 'kgi' ? (
+                    <p className="text-sm text-gray-700">期日: {n.dueDate || '(なし)'}</p>
+                  ) : (
+                    <div className="flex flex-col gap-1 text-sm text-gray-700">
+                      <label htmlFor={dueId}>期日</label>
+                      <input
+                        id={dueId}
+                        aria-label={`『${n.title}』の期日`}
+                        type="date"
+                        value={n.dueDate}
+                        onChange={(e) => changeDue(n.id, e.target.value)}
+                        className={inputClass}
+                      />
+                    </div>
+                  )}
                   <div className="flex flex-col gap-1 text-sm text-gray-700">
                     <label htmlFor={statusId}>状態</label>
                     <select
@@ -263,6 +271,7 @@ export function PlanTree({ items, lastParentId, onCreate, onUpdate, onDelete, on
                         やめる
                       </button>
                     )}
+                    {n.level !== 'kgi' && (
                     <button
                       type="button"
                       ref={(el) => {
@@ -275,6 +284,7 @@ export function PlanTree({ items, lastParentId, onCreate, onUpdate, onDelete, on
                     >
                       {armed ? '本当に消す' : '消す'}
                     </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -433,6 +443,8 @@ const DB_NOT_CONFIGURED = 'データベースが未設定です';
 
 function problemMessage(status: number, failed: string): string {
   if (status === 503) return DB_NOT_CONFIGURED;
+  // KGI の固定 (EXP-024): サーバが 409 で断ったとき
+  if (status === 409) return 'KGI は決まったら変えません。変えるのは KPI・KDI・ToDo です';
   return `${failed} (${status})`;
 }
 

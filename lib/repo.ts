@@ -363,7 +363,25 @@ export async function createItem(sql: Sql, owner: string, input: ItemInput): Pro
 }
 
 /** owner の項目の、patch にある項目だけを変えて updated_at を今にする。他人・無い項目は null。 */
-export async function updateItem(sql: Sql, owner: string, id: string, patch: ItemPatch): Promise<PlanItem | null> {
+/** KGI は決まったら動かさない (EXP-024)。KGI の title・target・dueDate の更新と、KGI の削除はこれを返す。 */
+export const KGI_LOCKED = "kgi_locked" as const;
+
+/** 持ち主の KGI か (固定で断った理由を、無い・他人と区別して返すため)。 */
+async function isOwnedKgi(sql: Sql, owner: string, id: string): Promise<boolean> {
+  const rows = await sql`
+    select 1 from plan_items where id = ${id} and owner = ${owner} and level = 'kgi'
+  `;
+  return rows.length > 0;
+}
+
+export async function updateItem(
+  sql: Sql,
+  owner: string,
+  id: string,
+  patch: ItemPatch,
+): Promise<PlanItem | null | typeof KGI_LOCKED> {
+  // KGI で変えてよいのは status だけ (最後に成功 / 失敗を付けるため)
+  const touchesLocked = patch.title !== undefined || patch.target !== undefined || patch.dueDate !== undefined;
   const hasDue = patch.dueDate !== undefined;
   const dueDate = patch.dueDate === undefined || patch.dueDate === "" ? null : patch.dueDate;
   const rows = await sql`
@@ -373,17 +391,21 @@ export async function updateItem(sql: Sql, owner: string, id: string, patch: Ite
       status = coalesce(${patch.status ?? null}, status),
       due_date = case when ${hasDue}::boolean then ${dueDate}::date else due_date end,
       updated_at = now()
-    where id = ${id} and owner = ${owner}
+    where id = ${id} and owner = ${owner} and (level <> 'kgi' or not ${touchesLocked}::boolean)
     returning id, project_id, parent_id, level, title, target, due_date, status, created_at, updated_at
   `;
-  return rows.length > 0 ? toItem(rows[0]) : null;
+  if (rows.length > 0) return toItem(rows[0]);
+  if (touchesLocked && (await isOwnedKgi(sql, owner, id))) return KGI_LOCKED;
+  return null;
 }
 
 /** owner の項目を消せたら true (子も on delete cascade で消える)。他人・無い項目は false。 */
-export async function deleteItem(sql: Sql, owner: string, id: string): Promise<boolean> {
+export async function deleteItem(sql: Sql, owner: string, id: string): Promise<boolean | typeof KGI_LOCKED> {
   const rows = await sql`
-    delete from plan_items where id = ${id} and owner = ${owner}
+    delete from plan_items where id = ${id} and owner = ${owner} and level <> 'kgi'
     returning id
   `;
-  return rows.length > 0;
+  if (rows.length > 0) return true;
+  if (await isOwnedKgi(sql, owner, id)) return KGI_LOCKED;
+  return false;
 }
