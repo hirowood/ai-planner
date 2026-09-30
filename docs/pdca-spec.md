@@ -66,3 +66,4 @@ Date: 2026-09-30 / 置き換え: `docs/ux-pdca-plan.md` の「進め方」を、
 | 利用ごとの記録 | `evidence/FIELD-LOG.md` |
 | カード | `evidence/EXP-xxx/` (`request.md` → `result.md`) |
 | 計測の定義 | `lib/perf.ts` (出してよい項目の型) |
+| カードの作り方 (並列・PERT・振り返り) | `docs/parallel-cycle-spec.md` / 雛形 `docs/plans/cycle-template.json` / 教訓 `docs/cycle-lessons.md` |
