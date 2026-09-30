@@ -28,6 +28,16 @@ function resetGemini() {
   geminiState.chunks = null;
   geminiState.chunkDelayMs = 0;
   geminiState.failAfterChunks = null;
+  geminiState.failWith = null;
+}
+
+// @google/generative-ai の GoogleGenerativeAIFetchError と同じ形 (status・errorDetails)
+function quotaError(quotaId: string) {
+  return Object.assign(new Error(`[429 Too Many Requests] quota exceeded`), {
+    status: 429,
+    statusText: "Too Many Requests",
+    errorDetails: [{ "@type": "type.googleapis.com/google.rpc.QuotaFailure", violations: [{ quotaId }] }],
+  });
 }
 
 describe("POST /api/chat — 振る舞い", () => {
@@ -62,6 +72,25 @@ describe("POST /api/chat — 振る舞い", () => {
     expect(res.headers.get("Content-Type")).toContain("text/plain");
     expect(await res.text()).toBe(geminiState.chunks.join(""));
     expect(geminiState.lastPrompt).toContain(BODY_CANARY); // 本文はモデルには渡る
+  });
+
+  it("1 日の上限の 429 は kind=quota_daily と戻る時刻を返す (EXP-005 L1)", async () => {
+    authState.session = signedIn();
+    geminiState.failWith = quotaError("GenerateRequestsPerDayPerProjectPerModel-FreeTier");
+    const res = await POST(post({ message: "hi", history: [] }));
+    expect(res.status).toBe(429);
+    const body = await res.json();
+    expect(body).toMatchObject({ kind: "quota_daily" });
+    expect(body.reset_at).toMatch(/^\d{2}:\d{2}$/);
+    expect(body.error).toContain(body.reset_at);
+  });
+
+  it("それ以外の 429 は kind=quota_rate (EXP-005 L2)", async () => {
+    authState.session = signedIn();
+    geminiState.failWith = quotaError("GenerateRequestsPerMinutePerProjectPerModel-FreeTier");
+    const res = await POST(post({ message: "hi", history: [] }));
+    expect(res.status).toBe(429);
+    expect(await res.json()).toMatchObject({ kind: "quota_rate" });
   });
 
   it("ストリームの途中で失敗すると、本文の読み取りが失敗する (クライアントが気づける)", async () => {
@@ -145,6 +174,15 @@ describe("POST /api/chat — 計測点", () => {
     const res = await POST(post({ message: "hi", history: [] }));
     await res.text();
     expect(perf.parsed()[0]).toMatchObject({ status: 200, plan_proposed: false });
+  });
+
+  it("429 の経路: [perf] は status 429 の 1 行で、項目は増えない (EXP-005 L5)", async () => {
+    geminiState.failWith = quotaError("GenerateRequestsPerDayPerProjectPerModel-FreeTier");
+    await POST(post({ message: BODY_CANARY, history: [] }));
+    expect(perf.lines).toHaveLength(1);
+    const [line] = perf.parsed();
+    expect(Object.keys(line).every((k) => ALLOWED.includes(k))).toBe(true);
+    expect(line).toMatchObject({ route: "api/chat", status: 429 });
   });
 
   it("ストリームの途中で失敗したら [perf] の status は 500", async () => {

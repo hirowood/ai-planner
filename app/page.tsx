@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { SessionProvider, useSession, signIn, signOut } from "next-auth/react";
 import { formatPerfLine } from "../lib/perf";
 import { MessageContent } from "./components/MessageContent";
+import { quotaNotice } from "../lib/quota";
 
 // --- 型定義 ---
 
@@ -59,7 +60,9 @@ function AppContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [pendingPlan, setPendingPlan] = useState<CalendarEvent[] | null>(null);
-  
+  // 上限などのお知らせ (エラーではない)。次に送ったときに消す
+  const [notice, setNotice] = useState<string | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // 初回表示の計測 (measure → improve ループ M0): 最初の予定取得の完了時に 1 回だけ出す
   const initialLoadLogged = useRef(false);
@@ -103,6 +106,7 @@ function AppContent() {
     setInput('');
     setIsLoading(true);
     setPendingPlan(null);
+    setNotice(null);
 
     try {
       const response = await fetch('/api/chat', {
@@ -116,6 +120,14 @@ function AppContent() {
       });
       
       // エラー (401/400/429/500) は JSON、成功はテキストのストリームで返る (EXP-001)
+      // 上限 (429) はエラーではなくお知らせとして出し、送れなかった文を入力欄に戻す (EXP-005)
+      if (response.status === 429) {
+        const body: unknown = await response.json().catch(() => null);
+        setNotice(quotaNotice(response.status, body));
+        setMessages((prev) => prev.slice(0, -1));
+        setInput(text);
+        return;
+      }
       if (!response.ok) {
         throw new Error('API Error');
       }
@@ -294,6 +306,11 @@ function AppContent() {
              </div>
            ))}
            {isLoading && <div className="text-gray-400 animate-pulse">考え中...</div>}
+           <div role="status">
+             {notice && (
+               <p className="p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-900">⏳ {notice}</p>
+             )}
+           </div>
            <div ref={messagesEndRef} />
         </main>
 

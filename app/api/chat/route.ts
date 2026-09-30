@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../auth/[...nextauth]/route";
 import { startPerf } from "../../../lib/perf";
+import { quotaBody, quotaKind } from "../../../lib/quota";
 
 // --- 環境変数の確認 ---
 if (!process.env.GOOGLE_API_KEY) {
@@ -33,6 +34,7 @@ interface GenAIError {
   status?: number;
   message?: string;
   statusText?: string;
+  errorDetails?: unknown;
 }
 
 // --- Type Guards (実行時型チェック関数) ---
@@ -249,12 +251,9 @@ WhatとWhyが明確になったら、次の順に1つずつ質問してくださ
     console.error("Chat API Error:", error);
 
     if (isGenAIError(error)) {
-      // 429 Too Many Requests
+      // 429 Too Many Requests: 1 日の上限か、それ以外かを分けて返す (EXP-005)
       if (error.status === 429 || error.message?.includes('429')) {
-        return NextResponse.json(
-          { error: "現在AIへのアクセスが混み合っています。しばらく時間を置いてから再度お試しください。" },
-          { status: 429 }
-        );
+        return NextResponse.json(quotaBody(quotaKind(error)), { status: 429 });
       }
     }
 
