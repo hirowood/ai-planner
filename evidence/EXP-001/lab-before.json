@@ -1,0 +1,71 @@
+{
+  "label": "exp001-before",
+  "created_at": "2026-09-29T14:54:44.752Z",
+  "node": "v24.19.0",
+  "warmup": 3,
+  "network_calls": 0,
+  "scenarios": {
+    "api/chat": {
+      "total_ms": {
+        "n": 20,
+        "median": 108.4,
+        "p90": 109.4,
+        "mean": 108.49,
+        "stdev": 0.86,
+        "cv": 0.01
+      },
+      "gemini_ms": {
+        "n": 20,
+        "median": 107.55,
+        "p90": 108.4,
+        "mean": 107.51,
+        "stdev": 0.92,
+        "cv": 0.01
+      }
+    },
+    "api/calendar/get": {
+      "total_ms": {
+        "n": 20,
+        "median": 31.6,
+        "p90": 46.1,
+        "mean": 36.31,
+        "stdev": 7.29,
+        "cv": 0.2
+      },
+      "calendar_ms": {
+        "n": 20,
+        "median": 31.4,
+        "p90": 45.8,
+        "mean": 36.08,
+        "stdev": 7.29,
+        "cv": 0.2
+      }
+    },
+    "api/calendar/create": {
+      "total_ms": {
+        "n": 20,
+        "median": 93.7,
+        "p90": 108.4,
+        "mean": 97.73,
+        "stdev": 6.95,
+        "cv": 0.07
+      },
+      "calendar_ms": {
+        "n": 20,
+        "median": 93.5,
+        "p90": 108,
+        "mean": 97.43,
+        "stdev": 6.92,
+        "cv": 0.07
+      }
+    }
+  },
+  "conditions": {
+    "n": 20,
+    "delay_ms": {
+      "gemini_ms": 100,
+      "calendar_ms": 30
+    },
+    "create_events": 3
+  }
+}

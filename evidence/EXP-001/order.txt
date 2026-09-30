@@ -1,0 +1,11 @@
+# EXP-001 commit order (T-021): request.md must be older than the change commit
+# git log --format="%h %ad %s" --date=iso-strict -- evidence/EXP-001/request.md app/api/chat/route.ts app/page.tsx lib/perf.ts
+5f0cf36 2026-09-29T23:51:26+09:00 feat(chat): stream the Gemini reply (EXP-001, T-021)
+7ef5872 2026-09-29T23:26:57+09:00 exp: pre-register EXP-001, streaming api/chat (T-020)
+a9ed90f 2026-09-29T22:27:27+09:00 perf: add [perf] timing points to the API routes and first load (T-001)
+8695a3c 2026-02-03T23:13:15+09:00 ui: display user profile icon and improve header layout- Show Google account avatar image when logged in- Reorganize user name and logout button for better UI- Adjust header styling for consistent height and alignment
+26687f7 2026-02-03T23:07:01+09:00 refactor: enhance code robustness with strict type safety and security measures- Remove 'any' types across API routes and frontend by implementing Type Guards- Validate external API responses (Google Calendar/Gemini) to prevent runtime crashes- Force dynamic rendering for calendar GET route to ensure fresh data- Improve error handling and propagate specific status codes (e.g., 401 for token expiry)- Strengthen input validation against malformed JSON or malicious payloads
+# ancestry check: 7ef5872 (request.md) is an ancestor of 5f0cf36 (change)
+yes
+# files in 7ef5872:
+evidence/EXP-001/request.md

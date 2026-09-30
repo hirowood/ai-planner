@@ -1,0 +1,28 @@
+{
+  "n": 5000,
+  "rounds": 5,
+  "per_request_overhead_ms_median": 0.0068,
+  "per_request_overhead_ms_max": 0.0075,
+  "rounds_detail": [
+    {
+      "without_ms": 0.0044,
+      "with_ms": 0.0096
+    },
+    {
+      "without_ms": 0.0012,
+      "with_ms": 0.008
+    },
+    {
+      "without_ms": 0.0005,
+      "with_ms": 0.008
+    },
+    {
+      "without_ms": 0.0004,
+      "with_ms": 0.0072
+    },
+    {
+      "without_ms": 0.0004,
+      "with_ms": 0.0066
+    }
+  ]
+}

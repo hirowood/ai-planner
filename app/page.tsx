@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { SessionProvider, useSession, signIn, signOut } from "next-auth/react";
+import { formatPerfLine } from "../lib/perf";
 
 // --- 型定義 ---
 
@@ -24,10 +25,6 @@ type CalendarEvent = {
   colorId?: string;
 };
 
-type ApiChatResponse = {
-  reply: string;
-  error?: string;
-};
 
 // --- 型ガード (Type Guards) ---
 
@@ -63,6 +60,8 @@ function AppContent() {
   const [pendingPlan, setPendingPlan] = useState<CalendarEvent[] | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // 初回表示の計測 (measure → improve ループ M0): 最初の予定取得の完了時に 1 回だけ出す
+  const initialLoadLogged = useRef(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -77,6 +76,11 @@ function AppContent() {
   const fetchEvents = async () => {
     try {
       const res = await fetch('/api/calendar/get');
+      if (!initialLoadLogged.current) {
+        initialLoadLogged.current = true;
+        // ブラウザの performance.now() はナビゲーション開始からの経過時間。値だけを出す
+        console.log(formatPerfLine({ route: "page:/ initial-calendar", status: res.status, total_ms: performance.now() }));
+      }
       if (res.ok) {
         const data: unknown = await res.json();
         if (isCalendarEventArray(data)) {
@@ -110,20 +114,30 @@ function AppContent() {
         }),
       });
       
-      const data = await response.json() as unknown;
-      
+      // エラー (401/400/429/500) は JSON、成功はテキストのストリームで返る (EXP-001)
       if (!response.ok) {
         throw new Error('API Error');
       }
-
-      if (typeof data !== 'object' || data === null || !('reply' in data)) {
+      if (!response.body) {
         throw new Error('Invalid API response format');
       }
 
-      const typedData = data as ApiChatResponse;
-      const aiReply = typedData.reply;
-      
-      setMessages((prev) => [...prev, { role: 'assistant', content: aiReply }]);
+      // 届いた分から表示する。予定 JSON の抽出は全文がそろってから行う (これまでと同じ規則)
+      setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+      const showReply = (content: string) =>
+        setMessages((prev) => [...prev.slice(0, -1), { role: 'assistant', content }]);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let aiReply = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        aiReply += decoder.decode(value, { stream: true });
+        showReply(aiReply);
+      }
+      aiReply += decoder.decode();
+      showReply(aiReply);
 
       const jsonMatch = aiReply.match(/```json\s*([\s\S]*?)\s*```/);
       if (jsonMatch && jsonMatch[1]) {

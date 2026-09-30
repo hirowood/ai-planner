@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { authOptions } from "../../auth/[...nextauth]/route";
+import { startPerf } from "../../../../lib/perf";
 
 // --- 型定義 ---
 
@@ -46,7 +47,20 @@ function isEventArray(arg: unknown): arg is CalendarEventInput[] {
 
 // --- メイン処理 ---
 
+type Perf = ReturnType<typeof startPerf>;
+
+// 計測はここで一括して行う: handle のどの return 経路でも `[perf]` 行が 1 行出る
 export async function POST(req: Request) {
+  const perf = startPerf("api/calendar/create", ["calendar_ms"]);
+  try {
+    return perf.finish(await handle(req, perf));
+  } catch (error: unknown) {
+    perf.finish(new Response(null, { status: 500 }));
+    throw error;
+  }
+}
+
+async function handle(req: Request, perf: Perf): Promise<NextResponse> {
   // 🔒 1. 認証チェック
   const session = await getServerSession(authOptions);
 
@@ -87,21 +101,25 @@ export async function POST(req: Request) {
 
     for (const event of rawEvents) {
       try {
-        const response = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${session.accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(event),
+        // Calendar の時間 = 全イベント分の (fetch + 応答本文の受信) の合計
+        const { response, data } = await perf.time("calendar_ms", async () => {
+          const response = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${session.accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(event),
+          });
+          const data: unknown = await response.json();
+          return { response, data };
         });
-
-        const data: unknown = await response.json();
 
         if (!response.ok) {
           // Google APIからのエラーレスポンス
           const errorMsg = (data as { error?: { message?: string } })?.error?.message || "Unknown API Error";
-          console.error(`Failed to create event "${event.summary}":`, errorMsg);
+          // 予定のタイトルはログに出さない (実行ログの回収で予定の内容が外へ出るため)
+          console.error("Failed to create calendar event:", errorMsg);
           
           results.push({
             summary: event.summary,
@@ -119,7 +137,7 @@ export async function POST(req: Request) {
         }
       } catch (fetchError: unknown) {
         // 通信エラーなど
-        console.error(`Network error for event "${event.summary}":`, fetchError);
+        console.error("Network error creating calendar event:", fetchError);
         results.push({
           summary: event.summary,
           status: 'error',
