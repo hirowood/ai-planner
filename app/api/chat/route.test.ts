@@ -9,7 +9,7 @@ vi.mock("@google/generative-ai", async () => (await import("../../../test/mocks/
 
 import { POST } from "./route";
 
-const ALLOWED = ["calendar_ms", "first_chunk_ms", "gemini_ms", "history_len", "plan_proposed", "route", "status", "total_ms"];
+const ALLOWED = ["calendar_ms", "first_chunk_ms", "gemini_ms", "history_len", "plan_proposed", "question_count", "route", "status", "total_ms"];
 const BODY_CANARY = "canary-message-body-7f3a";
 const REPLY_CANARY = "canary-gemini-reply-91c2";
 const TOKEN_CANARY = "fake-token-canary-5d1e";
@@ -126,6 +126,20 @@ describe("POST /api/chat — 計測点", () => {
     expect(perf.parsed()[0]).toMatchObject({ status: 200, plan_proposed: true, history_len: 0 });
   });
 
+  it("question_count: 全角「？」と半角「?」を、チャンクをまたいで数える (EXP-004 L1)", async () => {
+    geminiState.chunks = ["何をしたいですか？", "なぜですか？ また", "時間は?"];
+    const res = await POST(post({ message: "hi", history: [] }));
+    await res.text();
+    expect(perf.parsed()[0]).toMatchObject({ status: 200, question_count: 3 });
+  });
+
+  it("question_count: 質問が無ければ 0", async () => {
+    geminiState.chunks = ["承知しました。", "プランを作ります。"];
+    const res = await POST(post({ message: "hi", history: [] }));
+    await res.text();
+    expect(perf.parsed()[0]).toMatchObject({ status: 200, question_count: 0 });
+  });
+
   it("plan_proposed: 予定案が無ければ false", async () => {
     geminiState.chunks = ["何をしたいですか?", " なぜですか?"];
     const res = await POST(post({ message: "hi", history: [] }));
@@ -140,6 +154,7 @@ describe("POST /api/chat — 計測点", () => {
     await res.text().catch(() => undefined);
     expect(perf.parsed()).toEqual([expect.objectContaining({ route: "api/chat", status: 500 })]);
     expect(perf.parsed()[0]).not.toHaveProperty("plan_proposed"); // 途中で切れた返答では判定しない
+    expect(perf.parsed()[0]).not.toHaveProperty("question_count");
   });
 
   it("ログのどこにも本文・返答・トークンが出ない", async () => {

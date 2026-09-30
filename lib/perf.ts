@@ -16,10 +16,12 @@ export type PerfLine = {
   // 以下は UX PDCA C0 で追加 (docs/ux-pdca-plan.md)。数と真偽だけで、中身は持たない
   history_len?: number; // そのリクエストまでの会話のメッセージ数
   plan_proposed?: boolean; // 返答に予定案 (```json ブロック) が含まれたか
+  question_count?: number; // 返答に含まれる「？」「?」の数 (EXP-004)
 };
 
-// 真偽を出すための検査だけに使う。ここで見た本文はどこにも残さない
+// 真偽・数を出すための検査だけに使う。ここで見た本文はどこにも残さない
 export type PerfFlag = { name: "plan_proposed"; pattern: RegExp };
+export type PerfCount = { name: "question_count"; pattern: RegExp }; // pattern は g フラグ付き
 
 const round = (ms: number): number => Math.round(ms * 10) / 10;
 
@@ -31,6 +33,7 @@ export function formatPerfLine(line: PerfLine): string {
   if (line.first_chunk_ms !== undefined) out.first_chunk_ms = round(line.first_chunk_ms);
   if (line.history_len !== undefined) out.history_len = line.history_len;
   if (line.plan_proposed !== undefined) out.plan_proposed = line.plan_proposed;
+  if (line.question_count !== undefined) out.question_count = line.question_count;
   return `[perf] ${JSON.stringify(out)}`;
 }
 
@@ -90,7 +93,7 @@ export function startPerf(route: string, parts: PerfPart[] = []) {
      */
     streamText(
       source: AsyncIterable<string>,
-      opts: { part?: PerfPart; partStart?: number; flag?: PerfFlag } = {},
+      opts: { part?: PerfPart; partStart?: number; flag?: PerfFlag; count?: PerfCount } = {},
     ): Response {
       deferred = true;
       const encoder = new TextEncoder();
@@ -109,6 +112,7 @@ export function startPerf(route: string, parts: PerfPart[] = []) {
         const l = line(status);
         l.first_chunk_ms = first ?? l.total_ms;
         if (opts.flag && status === 200) l[opts.flag.name] = opts.flag.pattern.test(seen);
+        if (opts.count && status === 200) l[opts.count.name] = (seen.match(opts.count.pattern) ?? []).length;
         seen = "";
         console.log(formatPerfLine(l));
       };
@@ -123,7 +127,7 @@ export function startPerf(route: string, parts: PerfPart[] = []) {
               return;
             }
             if (first === undefined) first = performance.now() - t0;
-            if (opts.flag) seen += value;
+            if (opts.flag || opts.count) seen += value;
             controller.enqueue(encoder.encode(value));
           } catch (error: unknown) {
             end(500);
