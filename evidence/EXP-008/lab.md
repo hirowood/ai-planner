@@ -26,3 +26,9 @@ M3 の穴: owner は insert の値にも入るので「owner がパラメータ�
 - 安全 (generic-security-reviewer): blocking 0。warn: DB のエラー文をそのままログに出す → **直した** (エラー名と Postgres の code だけ)。本文の大きさの上限なし・CSRF は SameSite=Lax で悪用不可・トークン更新失敗の扱いは範囲外 → 残す
 - a11y (a11y-reviewer): blocking 2 → **直した** (削除・取り消し後のフォーカスの行き先・入力欄の枠 gray-300 → gray-500)。warn のうち成功の読み上げ・削除待ちの読み上げ・Escape で取り消し・絵文字を読ませない を直した。残す: 入力エラーと欄の結び付け (aria-describedby)・タブの矢印キー・選択中の見た目の印
 - ブラウザと読み上げソフトでの実際の動きは未確認 (本人のローカル確認で見る)
+
+## Preview の画面検査 (PR #4・8567d15・2026-09-30)
+
+ログイン前の画面で axe-core 4.11.1 (WCAG 2.2 AA のタグ): 違反 0・要確認 0・合格 25 (`a11y-axe.json`・`a11y-screen.png`)。右の列の切り替えとプロジェクトの作成欄も検査の範囲に入っている。
+
+観察: ログイン前でもプロジェクトの作成欄が出る (押すと 401)。`docs/hypotheses.md` H-09 へ。

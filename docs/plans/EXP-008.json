@@ -397,7 +397,9 @@
       "reads": [],
       "optimistic": 0.1,
       "likely": 0.2,
-      "pessimistic": 0.5
+      "pessimistic": 0.5,
+      "status": "doing",
+      "started_at": "2026-09-30T09:15:30Z"
     },
     {
       "id": "RETRO",
