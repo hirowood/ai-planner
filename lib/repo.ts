@@ -54,12 +54,33 @@ export async function createProject(sql: Sql, owner: string, input: ProjectInput
   return toProject(rows[0]);
 }
 
-/** 持ち主のプロジェクトのノートを新しい順に返す。 */
-export async function listNotes(sql: Sql, owner: string, projectId: string): Promise<Note[]> {
+/** 持ち主の (しまっていない) プロジェクトを 1 件返す。他人・無い・しまったものは null (EXP-016)。 */
+export async function getProject(sql: Sql, owner: string, projectId: string): Promise<Project | null> {
+  const rows = await sql`
+    select id, name, category, purpose, created_at from projects
+    where id = ${projectId} and owner = ${owner} and archived_at is null
+    limit 1
+  `;
+  return rows.length > 0 ? toProject(rows[0]) : null;
+}
+
+/** 持ち主のプロジェクトのノートを新しい順に返す。limit を渡すとその件数まで (既定は上限なし)。 */
+export async function listNotes(sql: Sql, owner: string, projectId: string, limit?: number): Promise<Note[]> {
+  if (limit === undefined) {
+    const rows = await sql`
+      select id, project_id, kind, body, created_at from notes
+      where owner = ${owner} and project_id = ${projectId}
+      order by created_at desc
+    `;
+    return rows.map(toNote);
+  }
+  const n = Math.max(0, Math.floor(limit));
+  if (n === 0) return [];
   const rows = await sql`
     select id, project_id, kind, body, created_at from notes
     where owner = ${owner} and project_id = ${projectId}
     order by created_at desc
+    limit ${n}
   `;
   return rows.map(toNote);
 }
@@ -142,6 +163,36 @@ export async function getLatestCycle(sql: Sql, owner: string, projectId: string)
     limit 1
   `;
   return rows.length > 0 ? toCycle(rows[0]) : null;
+}
+
+/**
+ * 持ち主のプロジェクトの過去の cycle を新しい順 (updated_at) に limit 件返す (EXP-016)。
+ * excludeId (今の周) は除く。null なら除かない。
+ */
+export async function listPastCycles(
+  sql: Sql,
+  owner: string,
+  projectId: string,
+  excludeId: string | null,
+  limit: number,
+): Promise<Cycle[]> {
+  const n = Math.max(0, Math.floor(limit));
+  if (n === 0) return [];
+  const rows =
+    excludeId === null
+      ? await sql`
+          select id, project_id, phase, plan, created_at, updated_at from cycles
+          where owner = ${owner} and project_id = ${projectId}
+          order by updated_at desc
+          limit ${n}
+        `
+      : await sql`
+          select id, project_id, phase, plan, created_at, updated_at from cycles
+          where owner = ${owner} and project_id = ${projectId} and id <> ${excludeId}
+          order by updated_at desc
+          limit ${n}
+        `;
+  return rows.map(toCycle);
 }
 
 /**

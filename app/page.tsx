@@ -9,7 +9,15 @@ import { hasTimeMarker, stripTimeMarker } from "../lib/time-input";
 import { TimeDialog } from "./components/TimeDialog";
 import { ProjectPanel, useProjectWorkspace } from "./components/ProjectPanel";
 import { NotesPanel } from "./components/NotesPanel";
-import { ProjectPlanTab } from "./components/PlanPanel";
+import { PlanFields, usePlanStore } from "./components/PlanFields";
+import { parsePlanDraft, PLAN_FIELDS, PLAN_FIELD_LABEL, type PlanDraft } from "../lib/pdca-plan";
+
+// 返事で変わった Plan の欄を読み上げ用の 1 文にする (変わっていなければ null)
+function planChangeNotice(before: PlanDraft, after: PlanDraft): string | null {
+  const changed = PLAN_FIELDS.filter((f) => JSON.stringify(before[f]) !== JSON.stringify(after[f]));
+  if (changed.length === 0) return null;
+  return `Plan の${changed.map((f) => PLAN_FIELD_LABEL[f]).join('・')}を更新しました`;
+}
 
 // --- 型定義 ---
 
@@ -80,6 +88,11 @@ function AppContent() {
   const chatProjectId = useRef<string | null>(null);
   // 会話の読み込み・保存の失敗 (上限のお知らせとは別の記号で出す)。次に送ったときに消す
   const [chatProblem, setChatProblem] = useState<string | null>(null);
+  // 選んだプロジェクトの Plan の欄 (EXP-016)。会話の返事の plan もここへ反映する
+  const planStore = usePlanStore(workspace.selectedId);
+  // 返事で Plan の欄が変わったときの読み上げ (次に送ったときに消す)
+  const [planUpdated, setPlanUpdated] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // 初回表示の計測 (measure → improve ループ M0): 最初の予定取得の完了時に 1 回だけ出す
@@ -133,20 +146,6 @@ function AppContent() {
     })();
   }, [selectedProjectId]);
 
-  const saveChat = async (projectId: string, pair: Message[]) => {
-    try {
-      const res = await fetch('/api/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId, thread: 'chat', messages: pair }),
-      });
-      if (!res.ok) setChatProblem('会話を保存できませんでした');
-    } catch (err: unknown) {
-      console.error("Failed to save chat messages:", err);
-      setChatProblem('会話を保存できませんでした');
-    }
-  };
-
   const fetchEvents = async () => {
     try {
       const res = await fetch('/api/calendar/get');
@@ -182,6 +181,53 @@ function AppContent() {
     setPendingPlan(null);
     setNotice(null);
     setChatProblem(null);
+    setPlanUpdated(null);
+    // 時間の入力画面を開くときはそちらへフォーカスを渡し、それ以外は入力欄へ戻す
+    let dialogOpened = false;
+    const returnFocus = () => {
+      if (!dialogOpened) inputRef.current?.focus();
+    };
+
+    // プロジェクトを選んでいる間は /api/coach だけを使う (EXP-016)。保存はサーバが行うので画面からは保存しない
+    if (saveTo) {
+      try {
+        const response = await fetch('/api/coach', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId: saveTo, message: userMessage.content, ...(via ? { via } : {}) }),
+        });
+        const body: unknown = await response.json().catch(() => null);
+        if (chatProjectId.current !== saveTo) return;
+        if (response.status === 429) {
+          setNotice(quotaNotice(response.status, body));
+          setMessages((prev) => prev.slice(0, -1));
+          setInput(text);
+          return;
+        }
+        const reply = (body as { reply?: unknown } | null)?.reply;
+        if (!response.ok || typeof reply !== 'string') {
+          setChatProblem('返事を受け取れませんでした。もう一度送ってください');
+          return;
+        }
+        setMessages((prev) => [...prev, { role: 'assistant', content: stripTimeMarker(reply) }]);
+        const plan = parsePlanDraft((body as { plan?: unknown }).plan);
+        if (plan) {
+          setPlanUpdated(planChangeNotice(planStore.plan, plan));
+          planStore.setPlanFromServer(plan);
+        }
+        if ((body as { timePrompted?: unknown }).timePrompted === true) {
+          dialogOpened = true;
+          setTimeDialogOpen(true);
+        }
+      } catch (error: unknown) {
+        console.error("Coach Error:", error);
+        if (chatProjectId.current === saveTo) setChatProblem('返事を受け取れませんでした。もう一度送ってください');
+      } finally {
+        setIsLoading(false);
+        returnFocus();
+      }
+      return;
+    }
 
     try {
       const response = await fetch('/api/chat', {
@@ -229,7 +275,10 @@ function AppContent() {
       }
       aiReply += decoder.decode();
       showReply(aiReply);
-      if (hasTimeMarker(aiReply)) setTimeDialogOpen(true);
+      if (hasTimeMarker(aiReply)) {
+        dialogOpened = true;
+        setTimeDialogOpen(true);
+      }
 
       const jsonMatch = aiReply.match(/```json\s*([\s\S]*?)\s*```/);
       if (jsonMatch && jsonMatch[1]) {
@@ -245,17 +294,12 @@ function AppContent() {
         }
       }
 
-      // 1 往復ごとに保存する。選び直した・外した後は保存しない (EXP-010)
-      const assistantContent = stripTimeMarker(aiReply);
-      if (saveTo && chatProjectId.current === saveTo && assistantContent.trim()) {
-        void saveChat(saveTo, [userMessage, { role: 'assistant', content: assistantContent }]);
-      }
-
     } catch (error: unknown) {
       console.error("Chat Error:", error);
-      alert('エラーが発生しました。');
+      setChatProblem('返事を受け取れませんでした。もう一度送ってください');
     } finally {
       setIsLoading(false);
+      returnFocus();
     }
   };
 
@@ -375,9 +419,9 @@ function AppContent() {
 
         <main tabIndex={0} aria-label="会話" className="flex-1 overflow-y-auto p-4 space-y-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500">
            {workspace.selected && (
-             <p className="text-xs text-gray-600"><span aria-hidden="true">💬</span> 『{workspace.selected.name}』の壁打ち (保存されます)</p>
+             <p className="text-xs text-gray-600"><span aria-hidden="true">💬</span> 『{workspace.selected.name}』の PDCA (記録を見て答えます)</p>
            )}
-           <p role="status" className="text-sm text-gray-500">{historyLoading ? '会話を読み込み中…' : ''}</p>
+           <div role="log" aria-live="polite" aria-relevant="additions" aria-label="会話の履歴" className="space-y-4">
            {messages.map((msg, i) => (
              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                <div className={`max-w-[85%] p-3 rounded-lg shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white whitespace-pre-wrap' : 'bg-gray-100'}`}>
@@ -394,7 +438,11 @@ function AppContent() {
                </div>
              </div>
            ))}
-           {isLoading && <div className="text-gray-400 animate-pulse">考え中...</div>}
+           </div>
+           {/* 読み込み中・考え中・Plan の更新を 1 つの status で伝える (常に置いておく) */}
+           <p role="status" aria-busy={isLoading || historyLoading} className="text-sm text-gray-600">
+             {historyLoading ? '会話を読み込み中…' : isLoading ? <span className="animate-pulse motion-reduce:animate-none">考え中...</span> : planUpdated ?? ''}
+           </p>
            <div role="status">
              {notice && (
                <p className="p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-900"><span aria-hidden="true">⏳</span> {notice}</p>
@@ -408,8 +456,10 @@ function AppContent() {
 
         <footer className="p-4 border-t">
           <form onSubmit={onFormSubmit} className="flex gap-2">
-            <input 
-              type="text" 
+            <label htmlFor="chat-input" className="sr-only">メッセージ</label>
+            <input
+              ref={inputRef}
+              type="text"
               name="message"
               id="chat-input"
               autoComplete="off"
@@ -417,9 +467,11 @@ function AppContent() {
               placeholder="例: 明日の10時の予定を詳しく決めて" 
               value={input} 
               onChange={(e) => setInput(e.target.value)} 
-              disabled={isLoading} 
+              readOnly={isLoading}
+              aria-disabled={isLoading}
             />
-            <button type="submit" disabled={isLoading} className="bg-blue-600 text-white px-6 rounded font-bold hover:bg-blue-700 disabled:opacity-50">送信</button>
+            {/* 送信中も disabled にしない (フォーカスを失わせない)。二重送信は handleSendMessage が止める */}
+            <button type="submit" aria-disabled={isLoading} className={`bg-blue-600 text-white px-6 rounded font-bold hover:bg-blue-700 ${isLoading ? 'opacity-50' : ''}`}>送信</button>
           </form>
         </footer>
         <TimeDialog
@@ -478,7 +530,13 @@ function AppContent() {
                 </div>
                 {projectTab === 'plan' ? (
                   <div role="tabpanel" id="project-panel-plan" aria-labelledby="project-tab-plan">
-                    <ProjectPlanTab key={workspace.selected.id} project={workspace.selected} />
+                    <PlanFields
+                      plan={planStore.plan}
+                      onChange={planStore.setPlanByUser}
+                      cycleId={planStore.cycleId}
+                      saveStatus={planStore.saveStatus}
+                      onRegisterCalendar={() => void planStore.registerCalendar()}
+                    />
                   </div>
                 ) : (
                   <div role="tabpanel" id="project-panel-notes" aria-labelledby="project-tab-notes">

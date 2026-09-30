@@ -22,6 +22,8 @@ export type PerfLine = {
   time_dialog_used?: boolean; // そのメッセージが時間の入力画面から送られたか (EXP-006)
   row_count?: number; // データベースから返した行の数 (EXP-008)。行の中身は持たない
   fields_filled?: number; // 返した Plan の埋まった欄の数 0〜6 (EXP-009)。欄の中身は持たない
+  context_notes?: number; // AI に渡したノートの件数 (上限で切った後・EXP-016)。中身は持たない
+  context_cycles?: number; // AI に渡した過去の周の件数 (上限で切った後・EXP-016)。中身は持たない
 };
 
 // 真偽・数を出すための検査だけに使う。ここで見た本文はどこにも残さない
@@ -29,7 +31,14 @@ export type PerfFlag = { name: "plan_proposed" | "time_prompted"; pattern: RegEx
 export type PerfCount = { name: "question_count"; pattern: RegExp }; // pattern は g フラグ付き
 
 // set() で入れられる項目 (リクエスト中に分かる数・真偽だけ)
-type KnownField = "history_len" | "time_dialog_used" | "row_count" | "fields_filled";
+type KnownField =
+  | "history_len"
+  | "time_dialog_used"
+  | "row_count"
+  | "fields_filled"
+  | "time_prompted"
+  | "context_notes"
+  | "context_cycles";
 
 const round = (ms: number): number => Math.round(ms * 10) / 10;
 
@@ -47,6 +56,8 @@ export function formatPerfLine(line: PerfLine): string {
   if (line.time_dialog_used !== undefined) out.time_dialog_used = line.time_dialog_used;
   if (line.row_count !== undefined) out.row_count = line.row_count;
   if (line.fields_filled !== undefined) out.fields_filled = line.fields_filled;
+  if (line.context_notes !== undefined) out.context_notes = line.context_notes;
+  if (line.context_cycles !== undefined) out.context_cycles = line.context_cycles;
   return `[perf] ${JSON.stringify(out)}`;
 }
 
@@ -75,6 +86,9 @@ export function startPerf(route: string, parts: PerfPart[] = []) {
       if (fields.time_dialog_used !== undefined) known.time_dialog_used = fields.time_dialog_used;
       if (fields.row_count !== undefined) known.row_count = fields.row_count;
       if (fields.fields_filled !== undefined) known.fields_filled = fields.fields_filled;
+      if (fields.time_prompted !== undefined) known.time_prompted = fields.time_prompted;
+      if (fields.context_notes !== undefined) known.context_notes = fields.context_notes;
+      if (fields.context_cycles !== undefined) known.context_cycles = fields.context_cycles;
     },
 
     /** 外部呼び出し 1 回を計測して `part` に加算する。 */
