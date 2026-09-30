@@ -5,7 +5,9 @@
 | L1 整形される | 見出し・太字・箇条書き・表・コードブロックを含む返答で `<h3>`・`<strong>`・`<ul>`・`<table>`・`<pre>` が出る。コードブロック外に `**`・`###`・行頭 `- ` が残らない | **成立** |
 | L2 HTML を出さない | `<script>`・`<img onerror>`・`<iframe>` が要素として出ない。`javascript:` のリンクが href に残らない。普通のリンクは `target=_blank` + `rel="noopener noreferrer"` | **成立** |
 | L3 壊さない | `npm test` 41 件合格 (既存の振る舞い・計測・ストリーミングのテストを含む)・`tsc` 0・`next build` 0 | **成立** |
-| L4 画面検査 | Preview のログイン前の画面で A11Y_AUTOMATED | **未実施** (push 後の Preview で行う) |
+| L4 画面検査 | Preview (PR #3・a4e0df4) のログイン前の画面で A11Y_AUTOMATED (axe-core 4.11.1・WCAG 2.2 AA のタグ): 違反 0・要確認 0・合格 21 (`a11y-axe.json`・`a11y-screen.png`・2026-09-30) | **成立** |
+
+L4 の範囲: ログイン前の画面には会話が無いので、整形した返答 (`MessageContent`) と上限のお知らせ (EXP-005) はこの検査に含まれない。規則は事前登録どおりログイン前の画面だけ。タブのタイトルは既定の「Create Next App」のまま (H-05・axe は違反にしない)。
 
 ## 判別力の対照
 
