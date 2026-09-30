@@ -40,6 +40,9 @@ try {
   // 失敗の種類と文だけを出す (接続文字列は出さない)
   const name = error instanceof Error ? error.name : "Error";
   const message = error instanceof Error ? error.message.split(url).join("<DATABASE_URL>") : "unknown";
-  console.error(`migrate failed: ${name}: ${message}`);
+  // 通信の失敗は理由のコード (ENOTFOUND・ECONNRESET など) だけを足す。どこで止まったかを見分けるため
+  const source = error?.sourceError ?? error?.cause;
+  const cause = source?.cause?.code ?? source?.code ?? source?.name;
+  console.error(`migrate failed: ${name}: ${message}${cause ? ` (cause: ${cause})` : ""}`);
   process.exit(1);
 }

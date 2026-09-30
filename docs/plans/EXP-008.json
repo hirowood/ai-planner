@@ -343,7 +343,11 @@
       "reads": [],
       "optimistic": 0.1,
       "likely": 0.25,
-      "pessimistic": 24
+      "pessimistic": 24,
+      "status": "done",
+      "progress": 100,
+      "ended_at": "2026-09-30T09:33:55Z",
+      "timing_note": "started_at を記録していない (本人の作業の開始時刻は分からない) ので actual_duration を書かない。ended_at = Vercel の DATABASE_URL の createdAt"
     },
     {
       "id": "MIGRATE",
@@ -361,7 +365,10 @@
       "reads": [],
       "optimistic": 0.02,
       "likely": 0.05,
-      "pessimistic": 1
+      "pessimistic": 1,
+      "status": "done",
+      "progress": 100,
+      "timing_note": "1 回目は fetch failed (データベース作成直後・原因のコードは未記録で推定は DNS 未反映)・診断のあと 2 回目で成功。本人の実行時刻は記録していないので actual_duration を書かない"
     },
     {
       "id": "LOCAL",

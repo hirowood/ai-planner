@@ -9,7 +9,7 @@
 | L3 API | `app/api/projects`・`app/api/notes` の route テスト (401・400・201・200・204・404・503)・`[perf]` 1 行・許可項目だけ・名前・目的・本文・メールがログに出ない | **成立** |
 | L4 画面 | `ProjectPanel.test.tsx` 7 件 (作成欄のラベル・種類のラジオ・ノートの欄)。「📁 プロジェクト」「📅 予定」の切り替えは page.tsx にあり、テストは無い (a11y レビューで確認) | **成立** |
 | L5 壊さない | `npm test` 173 件合格・`tsc` 0・lint 0 errors (10 warnings: 既存 9 + `app/api/projects/route.ts` の未使用引数 `_req` 1)・`next build` 成功・チャットのプロンプトの差分 0 行 | **成立** |
-| L6 DB | 本物の Neon で移行 | **未実施** (本人が接続を設定した後) |
+| L6 DB | 本物の Neon (Vercel 連携・DATABASE_URL は 3 環境) で `db-migrate.mjs` → `notes`・`projects`。1 回目は `fetch failed` (作成直後・理由のコードは未記録)。URL の形・DNS・HTTPS の到達を値を出さずに診断して正常 → 2 回目で成功。失敗の理由のコードを出すようにスクリプトを直した | **成立** |
 
 ## 計器の確認 (わざと壊して赤になるか)
 
