@@ -14,7 +14,7 @@ import { POST as planPOST } from "../app/api/plan/chat/route";
 const json = (body: unknown) =>
   new Request("http://localhost/x", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
-describe("使うモデル (EXP-014 L1)", () => {
+describe("使うモデル (EXP-015 L1)", () => {
   let perf: ReturnType<typeof capturePerf>;
   beforeEach(() => {
     perf = capturePerf();
@@ -25,8 +25,8 @@ describe("使うモデル (EXP-014 L1)", () => {
   });
   afterEach(() => perf.restore());
 
-  it("モデルは gemini-2.5-flash-lite", () => {
-    expect(GEMINI_MODEL).toBe("gemini-2.5-flash-lite");
+  it("モデルは gemini-3.5-flash-lite", () => {
+    expect(GEMINI_MODEL).toBe("gemini-3.5-flash-lite");
   });
 
   it("/api/chat は lib/model.ts のモデルを使う", async () => {
