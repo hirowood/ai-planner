@@ -332,7 +332,10 @@
       "reads": [],
       "optimistic": 0.02,
       "likely": 0.05,
-      "pessimistic": 24
+      "pessimistic": 24,
+      "status": "done",
+      "progress": 100,
+      "timing_note": "本人の実行・時刻は記録していないので actual_duration を書かない"
     },
     {
       "id": "LOCAL",
@@ -349,7 +352,9 @@
       "reads": [],
       "optimistic": 0.2,
       "likely": 0.5,
-      "pessimistic": 24
+      "pessimistic": 24,
+      "status": "doing",
+      "started_at": "2026-09-30T10:33:02Z"
     },
     {
       "id": "RETRO",

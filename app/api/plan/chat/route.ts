@@ -210,7 +210,15 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
     return NextResponse.json({ reply, plan: merged, next: nextField(merged) }, { status: 200 });
   } catch (error: unknown) {
     // 名前だけを出す (message には利用者の入力が混ざりうるので出さない)
-    console.error("Plan chat API error:", error instanceof Error ? error.name : typeof error);
+    // 名前と HTTP の状態 (数と定型の語だけ) を出す。どこで止まったかを見分けるため
+    const status = (error as { status?: unknown })?.status;
+    const statusText = (error as { statusText?: unknown })?.statusText;
+    console.error(
+      "Plan chat API error:",
+      error instanceof Error ? error.name : typeof error,
+      typeof status === "number" ? status : "",
+      typeof statusText === "string" ? statusText.slice(0, 40) : "",
+    );
     if (is429(error) && isGenAIError(error)) {
       return NextResponse.json(quotaBody(quotaKind(error)), { status: 429 });
     }
