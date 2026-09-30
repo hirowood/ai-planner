@@ -322,8 +322,11 @@
       "optimistic": 0.1,
       "likely": 0.15,
       "pessimistic": 0.3,
-      "status": "doing",
-      "started_at": "2026-09-30T09:11:18Z"
+      "status": "done",
+      "started_at": "2026-09-30T09:11:18Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T09:12:13Z",
+      "actual_duration": 0.015
     },
     {
       "id": "DBSET",
