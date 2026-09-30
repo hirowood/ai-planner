@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "../../auth/[...nextauth]/route";
 import { startPerf } from "../../../../lib/perf";
 import { quotaBody, quotaKind } from "../../../../lib/quota";
+import { GEMINI_MODEL } from "../../../../lib/model";
 import {
   PLAN_FIELDS,
   PLAN_FIELD_LABEL,
@@ -196,7 +197,7 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
 
   try {
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash",
+      model: GEMINI_MODEL,
       generationConfig: { responseMimeType: "application/json" },
     });
     const prompt = buildPrompt(project, plan, history, message);

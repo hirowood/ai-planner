@@ -5,6 +5,7 @@ import { authOptions } from "../auth/[...nextauth]/route";
 import { startPerf } from "../../../lib/perf";
 import { quotaBody, quotaKind } from "../../../lib/quota";
 import { TIME_MARKER } from "../../../lib/time-input";
+import { GEMINI_MODEL } from "../../../lib/model";
 
 // --- 環境変数の確認 ---
 if (!process.env.GOOGLE_API_KEY) {
@@ -158,7 +159,7 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
     if (bodyMap.via === "time_dialog") perf.set({ time_dialog_used: true });
 
     // 🛡️ 4. AIモデルの準備
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
     const now = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
 
     const systemPrompt = `

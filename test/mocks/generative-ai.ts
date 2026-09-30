@@ -17,7 +17,10 @@ export const geminiState: {
   lastPrompt: string | null;
   // getGenerativeModel({ generationConfig }) か generateContent({ generationConfig }) で渡された最後の設定 (EXP-009)
   lastConfig: Record<string, unknown> | null;
+  // getGenerativeModel({ model }) で渡された最後のモデル名 (EXP-014)
+  lastModel: string | null;
 } = {
+  lastModel: null,
   failWith: null,
   reply: "fake reply",
   delayMs: 0,
@@ -54,6 +57,8 @@ export const generativeAiMock = {
     getGenerativeModel(params?: unknown) {
       const modelConfig = configOf(params);
       if (modelConfig) geminiState.lastConfig = modelConfig;
+      const model = (params as { model?: unknown } | undefined)?.model;
+      if (typeof model === "string") geminiState.lastModel = model;
       return {
         // 一括で JSON などを返させる呼び方 (EXP-009 の /api/plan/chat)。
         // prompt は文字列でも GenerateContentRequest でもよい (後者は JSON にして lastPrompt へ)
