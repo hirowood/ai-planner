@@ -293,7 +293,9 @@
       "reads": [],
       "optimistic": 0.2,
       "likely": 0.5,
-      "pessimistic": 24
+      "pessimistic": 24,
+      "status": "doing",
+      "started_at": "2026-09-30T13:04:57Z"
     }
   ]
 }
