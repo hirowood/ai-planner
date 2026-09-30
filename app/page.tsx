@@ -7,6 +7,8 @@ import { MessageContent } from "./components/MessageContent";
 import { quotaNotice } from "../lib/quota";
 import { hasTimeMarker, stripTimeMarker } from "../lib/time-input";
 import { TimeDialog } from "./components/TimeDialog";
+import { ProjectPanel, useProjectWorkspace } from "./components/ProjectPanel";
+import { NotesPanel } from "./components/NotesPanel";
 
 // --- 型定義 ---
 
@@ -66,6 +68,9 @@ function AppContent() {
   const [notice, setNotice] = useState<string | null>(null);
   // AI が時間を聞いたときに開く入力画面 (EXP-006)
   const [timeDialogOpen, setTimeDialogOpen] = useState(false);
+  // 右の列の切り替え (EXP-008)。既定はプロジェクト
+  const [sideTab, setSideTab] = useState<'projects' | 'calendar'>('projects');
+  const workspace = useProjectWorkspace(Boolean(session));
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // 初回表示の計測 (measure → improve ループ M0): 最初の予定取得の完了時に 1 回だけ出す
@@ -348,18 +353,63 @@ function AppContent() {
 
       {/* 右サイド */}
       <div className="w-1/3 bg-gray-100 p-4 overflow-y-auto flex flex-col gap-6">
+        <div role="tablist" aria-label="右の列" className="flex gap-2">
+          {([['projects', '📁', 'プロジェクト'], ['calendar', '📅', '予定']] as const).map(([tab, icon, label]) => (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              id={`side-tab-${tab}`}
+              aria-selected={sideTab === tab}
+              aria-controls={`side-panel-${tab}`}
+              onClick={() => setSideTab(tab)}
+              className={`flex-1 px-3 py-2 rounded-lg border font-bold text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${sideTab === tab ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'}`}
+            >
+              <span aria-hidden="true">{icon}</span> {label}
+            </button>
+          ))}
+        </div>
+        {sideTab === 'projects' ? (
+          <div role="tabpanel" id="side-panel-projects" aria-labelledby="side-tab-projects" className="flex flex-col gap-6">
+            <div role="status">
+              {workspace.problem && (
+                <p className="p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-sm">{workspace.problem}</p>
+              )}
+              {!workspace.problem && workspace.done && (
+                <p className="text-sm text-gray-700">{workspace.done}</p>
+              )}
+            </div>
+            {workspace.selected && (
+              <NotesPanel
+                project={workspace.selected}
+                notes={workspace.notes}
+                onCreate={(input) => void workspace.createNote(input)}
+                onDelete={(id) => void workspace.deleteNote(id)}
+              />
+            )}
+            <ProjectPanel
+              projects={workspace.projects}
+              selectedId={workspace.selectedId}
+              onSelect={workspace.select}
+              onCreate={(input) => void workspace.createProject(input)}
+            />
+          </div>
+        ) : (
+          <div role="tabpanel" id="side-panel-calendar" aria-labelledby="side-tab-calendar" className="flex flex-col gap-6">
         <div>
-          <h2 className="text-lg font-bold mb-3 text-blue-700">📅 今日の予定</h2>
+          <h2 className="text-lg font-bold mb-3 text-blue-700"><span aria-hidden="true">📅</span> 今日の予定</h2>
           <div className="space-y-3">
             {todayEvents.map(e => <EventCard key={e.id || crypto.randomUUID()} event={e} isToday={true} />)}
           </div>
         </div>
         <div>
-          <h2 className="text-lg font-bold mb-3 text-gray-600">🗓️ 今後の予定</h2>
+          <h2 className="text-lg font-bold mb-3 text-gray-600"><span aria-hidden="true">🗓️</span> 今後の予定</h2>
           <div className="space-y-3">
             {upcomingEvents.map(e => <EventCard key={e.id || crypto.randomUUID()} event={e} isToday={false} />)}
           </div>
         </div>
+          </div>
+        )}
       </div>
     </div>
   );

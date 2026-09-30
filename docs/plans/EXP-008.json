@@ -1,0 +1,423 @@
+{
+  "project": "ai-planner — EXP-008 土台 (データベース・プロジェクト・ノート)",
+  "unit": "時間",
+  "note": "cycle-template.json から作成 (2026-09-30)。最初の並列サイクル。actual_duration は started_at / ended_at の差だけ。PRE は時刻を記録していないので actual_duration を書かない。見積りは calibration が無いので素のまま。 時刻の計り方: started_at = 親が Agent を起動した時刻、ended_at = 親が完了の通知を受けた時刻 (TST だけは起動時刻 + agent の duration_ms)。",
+  "constraints": [
+    "commit・push・PR・マージは親だけが行う (子 agent は書くだけ)",
+    "push / 本番 / 巻き戻し / データベースの作成と接続は本人の承認 (Human Gate)",
+    "ログに出してよいのは lib/perf.ts の型にある項目だけ (名前・目的・本文・メール・トークンは出さない)",
+    ".env.local を読まない。DATABASE_URL の値をどこにも書かない",
+    "自分の task_card の files 以外のファイルを書かない"
+  ],
+  "tasks": [
+    {
+      "id": "PRE",
+      "wbs": "1.1",
+      "name": "事前登録 (request.md) と commit",
+      "goal": "仮説・範囲・受け渡しの形・判定規則を変更より前に固定する",
+      "deliverable": "evidence/EXP-008/request.md (1bbaafa)",
+      "done_when": "request.md が単独で commit されている",
+      "owner": "main",
+      "deps": [],
+      "files": [
+        "evidence/EXP-008/request.md",
+        "docs/product-spec.md"
+      ],
+      "reads": [
+        "docs/hypotheses.md"
+      ],
+      "optimistic": 0.1,
+      "likely": 0.2,
+      "pessimistic": 0.4,
+      "status": "done"
+    },
+    {
+      "id": "DEP",
+      "wbs": "1.2",
+      "name": "依存の追加 (@neondatabase/serverless 1.1.0)",
+      "goal": "新しい依存を正確な版で入れ、出所・版・リスク・確認を記録する",
+      "deliverable": "package.json・package-lock.json・evidence/EXP-008/dependency-neon.md",
+      "done_when": "npm install --save-exact が成功し、npm test が今までどおり通る",
+      "owner": "main",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "package.json",
+        "package-lock.json",
+        "evidence/EXP-008/dependency-neon.md"
+      ],
+      "reads": [],
+      "optimistic": 0.05,
+      "likely": 0.1,
+      "pessimistic": 0.3,
+      "status": "done",
+      "started_at": "2026-09-30T08:38:23Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T08:41:10Z",
+      "actual_duration": 0.046
+    },
+    {
+      "id": "TST",
+      "wbs": "2.1",
+      "name": "テストを先に書く (L1〜L4)",
+      "goal": "request.md の L1〜L4 と受け渡しの形だけから、失敗するテストを書く (実装を見ない)",
+      "deliverable": "lib/projects.test.ts・lib/repo.test.ts・app/api/projects/route.test.ts・app/api/notes/route.test.ts・app/components/ProjectPanel.test.tsx",
+      "done_when": "L1〜L4 ごとに 1 件以上のテストがあり、テスト名に規則の番号が入っている",
+      "owner": "test-writer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "lib/projects.test.ts",
+        "lib/repo.test.ts",
+        "app/api/projects/route.test.ts",
+        "app/api/notes/route.test.ts",
+        "app/components/ProjectPanel.test.tsx"
+      ],
+      "reads": [
+        "evidence/EXP-008/request.md",
+        "test/mocks/next-auth.ts",
+        "test/mocks/fetch.ts",
+        "app/api/chat/route.test.ts"
+      ],
+      "optimistic": 0.3,
+      "likely": 0.5,
+      "pessimistic": 1.0,
+      "status": "done",
+      "started_at": "2026-09-30T08:38:23Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T08:54:40Z",
+      "actual_duration": 0.271
+    },
+    {
+      "id": "LIB",
+      "wbs": "2.2",
+      "name": "検査と接続 (lib/projects.ts・lib/db.ts)",
+      "goal": "受け渡しの形どおりの純粋な検査と、DATABASE_URL からの接続を書く",
+      "deliverable": "lib/projects.ts・lib/db.ts",
+      "done_when": "tsc が通り、export が request.md §2 と一致する",
+      "owner": "backend-implementer",
+      "deps": [
+        "DEP"
+      ],
+      "files": [
+        "lib/projects.ts",
+        "lib/db.ts"
+      ],
+      "reads": [
+        "evidence/EXP-008/request.md"
+      ],
+      "optimistic": 0.1,
+      "likely": 0.2,
+      "pessimistic": 0.4,
+      "status": "done",
+      "started_at": "2026-09-30T08:41:40Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T08:53:21Z",
+      "actual_duration": 0.195
+    },
+    {
+      "id": "SRV",
+      "wbs": "2.3",
+      "name": "表・移行・持ち主で絞る問い合わせ・API・計測",
+      "goal": "db/schema.sql・移行スクリプト・lib/repo.ts・3 つの API・[perf] の db_ms と row_count",
+      "deliverable": "db/schema.sql・scripts/db-migrate.mjs・lib/repo.ts・app/api/projects/route.ts・app/api/notes/route.ts・app/api/notes/[id]/route.ts・lib/perf.ts の差分",
+      "done_when": "tsc が通り、全問い合わせが tagged template で owner を含む",
+      "owner": "backend-implementer",
+      "deps": [
+        "LIB"
+      ],
+      "files": [
+        "db/schema.sql",
+        "scripts/db-migrate.mjs",
+        "lib/repo.ts",
+        "app/api/projects/route.ts",
+        "app/api/notes/route.ts",
+        "app/api/notes/[id]/route.ts",
+        "lib/perf.ts"
+      ],
+      "reads": [
+        "lib/projects.ts",
+        "lib/db.ts",
+        "evidence/EXP-008/request.md",
+        "app/api/calendar/get/route.ts"
+      ],
+      "optimistic": 0.3,
+      "likely": 0.5,
+      "pessimistic": 1.0,
+      "status": "done",
+      "started_at": "2026-09-30T08:53:57Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T08:57:00Z",
+      "actual_duration": 0.051
+    },
+    {
+      "id": "UI",
+      "wbs": "2.4",
+      "name": "画面 (プロジェクト・ノート・切り替え)",
+      "goal": "右の列にプロジェクトと予定の切り替え・プロジェクトの作成と選択・ノートの作成と一覧と削除",
+      "deliverable": "app/components/ProjectPanel.tsx・app/components/NotesPanel.tsx・app/page.tsx の差分",
+      "done_when": "tsc が通り、入力にラベル・種類はラジオ・削除は confirm() を使わない",
+      "owner": "frontend-implementer",
+      "deps": [
+        "LIB"
+      ],
+      "files": [
+        "app/components/ProjectPanel.tsx",
+        "app/components/NotesPanel.tsx",
+        "app/page.tsx"
+      ],
+      "reads": [
+        "lib/projects.ts",
+        "evidence/EXP-008/request.md",
+        "app/components/TimeDialog.tsx"
+      ],
+      "optimistic": 0.3,
+      "likely": 0.6,
+      "pessimistic": 1.2,
+      "status": "done",
+      "started_at": "2026-09-30T08:53:57Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T08:57:45Z",
+      "actual_duration": 0.063
+    },
+    {
+      "id": "RUN",
+      "wbs": "3.1",
+      "name": "テスト・型・lint・build を実行",
+      "goal": "生の結果だけを返す (直さない・解釈しない)",
+      "deliverable": "npm test / tsc / lint / next build の件数と失敗の全文",
+      "done_when": "4 つの結果が件数つきでそろっている",
+      "owner": "harness-test-runner",
+      "deps": [
+        "TST",
+        "SRV",
+        "UI"
+      ],
+      "files": [],
+      "reads": [
+        "app/",
+        "lib/",
+        "test/",
+        "db/",
+        "scripts/"
+      ],
+      "optimistic": 0.1,
+      "likely": 0.15,
+      "pessimistic": 0.3,
+      "status": "done",
+      "started_at": "2026-09-30T08:57:45Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T08:58:03Z",
+      "actual_duration": 0.005
+    },
+    {
+      "id": "REV",
+      "wbs": "3.2",
+      "name": "読み取り専用のレビュー (安全・a11y)",
+      "goal": "持ち主で絞れているか・SQL がパラメータか・秘密とログ、画面の a11y を別の目で見る",
+      "deliverable": "blocking / warn / ok の指摘 (ファイル:行と再現手順つき)",
+      "done_when": "指摘ごとにファイル:行と再現手順がある。無ければ ok",
+      "owner": "generic-security-reviewer + a11y-reviewer",
+      "deps": [
+        "SRV",
+        "UI"
+      ],
+      "files": [],
+      "reads": [
+        "lib/repo.ts",
+        "lib/db.ts",
+        "app/api/projects/route.ts",
+        "app/api/notes/route.ts",
+        "app/api/notes/[id]/route.ts",
+        "app/components/ProjectPanel.tsx",
+        "app/components/NotesPanel.tsx",
+        "app/page.tsx"
+      ],
+      "optimistic": 0.1,
+      "likely": 0.2,
+      "pessimistic": 0.4,
+      "status": "done",
+      "started_at": "2026-09-30T08:57:30Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T09:09:45Z",
+      "actual_duration": 0.204
+    },
+    {
+      "id": "MUT",
+      "wbs": "3.3",
+      "name": "計器の確認 (持ち主の絞り込みを壊して赤になるか)",
+      "goal": "L2 と L3 のテストが、owner を外したときに赤になることを確かめる",
+      "deliverable": "壊した箇所・赤になったテスト名・戻した後の件数",
+      "done_when": "壊した数と赤の数が合い、戻して全件緑",
+      "owner": "main",
+      "deps": [
+        "RUN"
+      ],
+      "files": [
+        "lib/repo.ts"
+      ],
+      "reads": [
+        "lib/",
+        "app/"
+      ],
+      "optimistic": 0.1,
+      "likely": 0.15,
+      "pessimistic": 0.3,
+      "status": "done",
+      "started_at": "2026-09-30T09:09:26Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T09:09:33Z",
+      "actual_duration": 0.002
+    },
+    {
+      "id": "FIX",
+      "wbs": "3.4",
+      "name": "差し戻し (a11y blocking 2・計器の穴 M3・ログの warn)",
+      "goal": "レビューと計器の確認で出た指摘を元の担当が直す (見積りは無し: 計画外の工程)",
+      "deliverable": "NotesPanel/ProjectPanel/page の修正・repo.test.ts の追加テスト・3 route のログ",
+      "done_when": "blocking 0・M3 で赤・全件緑",
+      "owner": "test-writer + frontend-implementer + backend-implementer",
+      "deps": [
+        "REV",
+        "MUT"
+      ],
+      "files": [
+        "lib/repo.test.ts",
+        "app/components/ProjectPanel.tsx",
+        "app/components/NotesPanel.tsx",
+        "app/page.tsx",
+        "app/api/projects/route.ts",
+        "app/api/notes/route.ts",
+        "app/api/notes/[id]/route.ts"
+      ],
+      "reads": [],
+      "status": "done",
+      "started_at": "2026-09-30T09:10:09Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T09:11:18Z",
+      "actual_duration": 0.019
+    },
+    {
+      "id": "LAB",
+      "wbs": "4.1",
+      "name": "lab.md に判定を書き commit",
+      "goal": "L1〜L5 を 成立 / 不成立 で埋め、変更と一緒に commit",
+      "deliverable": "evidence/EXP-008/lab.md と変更の commit",
+      "done_when": "L1〜L5 が埋まり、指摘の blocking が 0",
+      "owner": "main",
+      "deps": [
+        "RUN",
+        "REV",
+        "MUT",
+        "FIX"
+      ],
+      "files": [
+        "evidence/EXP-008/lab.md"
+      ],
+      "reads": [
+        "evidence/EXP-008/request.md"
+      ],
+      "optimistic": 0.1,
+      "likely": 0.15,
+      "pessimistic": 0.3,
+      "status": "doing",
+      "started_at": "2026-09-30T09:11:18Z"
+    },
+    {
+      "id": "DBSET",
+      "wbs": "5.0",
+      "name": "本人: Neon の作成・接続・.env.local への書き写し",
+      "goal": "Vercel で Neon を作って ai-planner につなぎ、ローカルの .env.local に DATABASE_URL を入れる (コードを待たない)",
+      "deliverable": "Vercel の環境変数に DATABASE_URL・.env.local に DATABASE_URL",
+      "done_when": "本人が「つないだ」と伝えた",
+      "owner": "本人",
+      "deps": [
+        "PRE"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.1,
+      "likely": 0.25,
+      "pessimistic": 24
+    },
+    {
+      "id": "MIGRATE",
+      "wbs": "5.05",
+      "name": "本人: 移行を流す (L6)",
+      "goal": "schema.sql を本物の Neon に流して 2 つの表を作る",
+      "deliverable": "db-migrate.mjs の出力 (表の名前だけ)",
+      "done_when": "projects と notes が出た",
+      "owner": "本人",
+      "deps": [
+        "DBSET",
+        "LAB"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.02,
+      "likely": 0.05,
+      "pessimistic": 1
+    },
+    {
+      "id": "LOCAL",
+      "wbs": "5.1",
+      "name": "本人のローカル確認",
+      "goal": "本物のデータベースでプロジェクトとノートを作り、一覧・削除を見る",
+      "deliverable": "本人の一言・点数・[perf] 行",
+      "done_when": "本人が「使った」と伝え、[perf] を回収した",
+      "owner": "本人",
+      "deps": [
+        "MIGRATE"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.2,
+      "likely": 0.5,
+      "pessimistic": 24
+    },
+    {
+      "id": "SHIP",
+      "wbs": "5.2",
+      "name": "push・PR・Preview の画面検査",
+      "goal": "本人の承認後に push し、Preview の A11Y を取ってから PR にする",
+      "deliverable": "PR・evidence/EXP-008/a11y-axe.json",
+      "done_when": "PR が開き、Preview の axe が記録されている",
+      "owner": "main",
+      "deps": [
+        "LOCAL"
+      ],
+      "files": [
+        "evidence/EXP-008/a11y-axe.json"
+      ],
+      "reads": [],
+      "optimistic": 0.1,
+      "likely": 0.2,
+      "pessimistic": 0.5
+    },
+    {
+      "id": "RETRO",
+      "wbs": "6.1",
+      "name": "振り返り (retro.py) と教訓の登録",
+      "goal": "見積りと実績の差・遅かった工程・分け方の失敗を次へ渡す",
+      "deliverable": "evidence/EXP-008/retro.md・docs/cycle-lessons.md の行",
+      "done_when": "retro.py の出力を貼り、遅れた工程ごとに 原因 / 次にどうするか を 1 行ずつ書いた",
+      "owner": "main",
+      "deps": [
+        "SHIP"
+      ],
+      "files": [
+        "evidence/EXP-008/retro.md",
+        "docs/cycle-lessons.md",
+        "docs/plans/EXP-008.json"
+      ],
+      "reads": [
+        "docs/plans/calibration.json"
+      ],
+      "optimistic": 0.1,
+      "likely": 0.15,
+      "pessimistic": 0.3
+    }
+  ]
+}
