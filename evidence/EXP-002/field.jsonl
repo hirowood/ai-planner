@@ -1,0 +1,7 @@
+{"route": "api/calendar/get", "status": 200, "total_ms": 415.3, "calendar_ms": 411.4, "_at": "2026-09-30T00:44:12Z"}
+{"route": "api/chat", "status": 200, "total_ms": 1464.9, "gemini_ms": 1407.6, "first_chunk_ms": 1184, "history_len": 0, "plan_proposed": false, "_at": "2026-09-30T00:44:45Z"}
+{"route": "api/chat", "status": 200, "total_ms": 2065, "gemini_ms": 2061.5, "first_chunk_ms": 1450.1, "history_len": 2, "plan_proposed": false, "_at": "2026-09-30T00:46:28Z"}
+{"route": "api/chat", "status": 200, "total_ms": 9343.8, "gemini_ms": 9341.4, "first_chunk_ms": 4649.7, "history_len": 4, "plan_proposed": false, "_at": "2026-09-30T00:48:01Z"}
+{"route": "api/chat", "status": 200, "total_ms": 2669.5, "gemini_ms": 2666.9, "first_chunk_ms": 360.7, "history_len": 6, "plan_proposed": true, "_at": "2026-09-30T00:48:28Z"}
+{"route": "api/calendar/create", "status": 200, "total_ms": 532.6, "calendar_ms": 530.4, "_at": "2026-09-30T00:48:35Z"}
+{"route": "api/calendar/get", "status": 200, "total_ms": 172, "calendar_ms": 169.2, "_at": "2026-09-30T00:48:37Z"}

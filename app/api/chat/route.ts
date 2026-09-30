@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../auth/[...nextauth]/route";
 import { startPerf } from "../../../lib/perf";
+import { quotaBody, quotaKind } from "../../../lib/quota";
 
 // --- 環境変数の確認 ---
 if (!process.env.GOOGLE_API_KEY) {
@@ -33,6 +34,7 @@ interface GenAIError {
   status?: number;
   message?: string;
   statusText?: string;
+  errorDetails?: unknown;
 }
 
 // --- Type Guards (実行時型チェック関数) ---
@@ -166,13 +168,15 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
 
 ### 必須の対話フロー（この順序を守ってください）
 
+**最重要ルール: 1回の返答で質問は1つだけにしてください。** 複数の質問を並べず、ユーザーの答えを受け取ってから次の質問に進みます。ユーザーの発言ですでに分かっている項目は、聞かずに次へ進んでください。
+
 **フェーズ1: 本質の追求（What & Why）**
-ユーザーからタスクの要望があったら、まずは以下をセットで質問してください。
+ユーザーからタスクの要望があったら、次の順に1つずつ質問してください。
 1. **What**: 具体的に何をしたいですか？
 2. **Why**: なぜそれをやる必要がありますか？（目的・動機）
 
 **フェーズ2: 制約と定義（Time & Goal）**
-WhatとWhyが明確になったら、次に以下を質問してください。
+WhatとWhyが明確になったら、次の順に1つずつ質問してください。
 1. **学習時間**: 確保できる時間はどれくらいですか？（または開始・終了時刻）
 2. **ゴール**: 今回のセッションが終わった時、どういう状態になっていれば「完了」としますか？
 
@@ -237,6 +241,8 @@ WhatとWhyが明確になったら、次に以下を質問してください。
       part: "gemini_ms",
       partStart: geminiStart,
       flag: { name: "plan_proposed", pattern: /```json\s*[\s\S]*?\s*```/ },
+      // EXP-004: 1 回の返答に含まれる質問の数 (「？」と「?」を数えるだけ)
+      count: { name: "question_count", pattern: /[?？]/g },
     });
 
   } catch (error: unknown) {
@@ -245,12 +251,9 @@ WhatとWhyが明確になったら、次に以下を質問してください。
     console.error("Chat API Error:", error);
 
     if (isGenAIError(error)) {
-      // 429 Too Many Requests
+      // 429 Too Many Requests: 1 日の上限か、それ以外かを分けて返す (EXP-005)
       if (error.status === 429 || error.message?.includes('429')) {
-        return NextResponse.json(
-          { error: "現在AIへのアクセスが混み合っています。しばらく時間を置いてから再度お試しください。" },
-          { status: 429 }
-        );
+        return NextResponse.json(quotaBody(quotaKind(error)), { status: 429 });
       }
     }
 

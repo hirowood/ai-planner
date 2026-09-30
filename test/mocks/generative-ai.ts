@@ -4,8 +4,10 @@
 //   こうすると両方の呼び方に同じタイマーの丸めがかかり、生成の実時間が揃う。
 //   `chunks` が無ければ `reply` を `delayMs` 待ってから返す (EXP-001 までの条件)
 // - sendMessageStream: `chunks` を 1 つずつ `chunkDelayMs` 間隔で返す (EXP-001 のストリーミング)。
-//   `failAfterChunks` を指定すると、その数だけ返したあとで失敗する
+//   `failAfterChunks` を指定すると、その数だけ返したあとで失敗する。
+//   `failWith` を指定すると、ストリームが始まる前にそれを投げる (429 などの API エラー・EXP-005)
 export const geminiState: {
+  failWith: unknown;
   reply: string;
   delayMs: number;
   chunks: string[] | null; // null なら reply を 1 チャンクとして返す
@@ -14,6 +16,7 @@ export const geminiState: {
   calls: number;
   lastPrompt: string | null;
 } = {
+  failWith: null,
   reply: "fake reply",
   delayMs: 0,
   chunks: null,
@@ -57,6 +60,7 @@ export const generativeAiMock = {
             async sendMessageStream(prompt: string) {
               geminiState.calls += 1;
               geminiState.lastPrompt = prompt;
+              if (geminiState.failWith) throw geminiState.failWith;
               return { stream: chunkStream(), response: Promise.resolve({ text: () => geminiState.reply }) };
             },
           };

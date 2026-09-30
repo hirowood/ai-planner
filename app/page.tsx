@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { SessionProvider, useSession, signIn, signOut } from "next-auth/react";
 import { formatPerfLine } from "../lib/perf";
+import { MessageContent } from "./components/MessageContent";
+import { quotaNotice } from "../lib/quota";
 
 // --- 型定義 ---
 
@@ -58,7 +60,9 @@ function AppContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [pendingPlan, setPendingPlan] = useState<CalendarEvent[] | null>(null);
-  
+  // 上限などのお知らせ (エラーではない)。次に送ったときに消す
+  const [notice, setNotice] = useState<string | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // 初回表示の計測 (measure → improve ループ M0): 最初の予定取得の完了時に 1 回だけ出す
   const initialLoadLogged = useRef(false);
@@ -102,6 +106,7 @@ function AppContent() {
     setInput('');
     setIsLoading(true);
     setPendingPlan(null);
+    setNotice(null);
 
     try {
       const response = await fetch('/api/chat', {
@@ -115,6 +120,14 @@ function AppContent() {
       });
       
       // エラー (401/400/429/500) は JSON、成功はテキストのストリームで返る (EXP-001)
+      // 上限 (429) はエラーではなくお知らせとして出し、送れなかった文を入力欄に戻す (EXP-005)
+      if (response.status === 429) {
+        const body: unknown = await response.json().catch(() => null);
+        setNotice(quotaNotice(response.status, body));
+        setMessages((prev) => prev.slice(0, -1));
+        setInput(text);
+        return;
+      }
       if (!response.ok) {
         throw new Error('API Error');
       }
@@ -278,8 +291,9 @@ function AppContent() {
         <main className="flex-1 overflow-y-auto p-4 space-y-4">
            {messages.map((msg, i) => (
              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-               <div className={`max-w-[85%] p-3 rounded-lg shadow-sm whitespace-pre-wrap ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>
-                 {msg.content}
+               <div className={`max-w-[85%] p-3 rounded-lg shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white whitespace-pre-wrap' : 'bg-gray-100'}`}>
+                 {/* AI の返答は Markdown として整形 (EXP-003)。本人のメッセージは文字のまま */}
+                 {msg.role === 'assistant' ? <MessageContent text={msg.content} /> : msg.content}
                  {msg.role === 'assistant' && i === messages.length - 1 && pendingPlan && (
                    <div className="mt-4 pt-4 border-t border-gray-300">
                      <p className="text-sm font-bold text-gray-600 mb-2">💡 カレンダーに追加しますか？</p>
@@ -292,6 +306,11 @@ function AppContent() {
              </div>
            ))}
            {isLoading && <div className="text-gray-400 animate-pulse">考え中...</div>}
+           <div role="status">
+             {notice && (
+               <p className="p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-900">⏳ {notice}</p>
+             )}
+           </div>
            <div ref={messagesEndRef} />
         </main>
 
