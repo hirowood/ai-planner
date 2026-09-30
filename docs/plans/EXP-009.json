@@ -1,0 +1,374 @@
+{
+  "project": "ai-planner — EXP-009 AI が誘導する Plan",
+  "unit": "時間",
+  "note": "cycle-template から。EXP-008 の反省: 受け渡しの形を request.md に全部書いたので、LIB を待たずに TST・LIB・SRVA・SRVB・UI を同時に始める (依存は PRE だけ)。時刻: started_at = 親が起動した時刻、ended_at = 親が通知を受けた時刻。",
+  "constraints": [
+    "commit・push は親だけ",
+    "push / 本番 / 移行は本人",
+    "ログは lib/perf.ts の型の項目だけ",
+    "自分の files 以外を書かない",
+    "/api/chat とそのプロンプトを変えない"
+  ],
+  "tasks": [
+    {
+      "id": "PRE",
+      "wbs": "1.1",
+      "name": "事前登録 (request.md) と commit",
+      "goal": "仮説・範囲・受け渡しの形・判定規則を固定",
+      "deliverable": "evidence/EXP-009/request.md (124ffeb)",
+      "done_when": "単独の commit",
+      "owner": "main",
+      "deps": [],
+      "files": [
+        "evidence/EXP-009/request.md"
+      ],
+      "reads": [
+        "docs/hypotheses.md"
+      ],
+      "optimistic": 0.1,
+      "likely": 0.2,
+      "pessimistic": 0.4,
+      "status": "done"
+    },
+    {
+      "id": "TST",
+      "wbs": "2.1",
+      "name": "テストを先に書く (L1〜L6)",
+      "goal": "request.md の L1〜L6 と受け渡しの形だけからテストを書く",
+      "deliverable": "lib/pdca-plan.test.ts・app/api/plan/chat/route.test.ts・app/api/cycles/route.test.ts・lib/repo-cycles.test.ts・app/components/PlanPanel.test.tsx",
+      "done_when": "L1〜L6 ごとに 1 件以上・名前に規則の番号",
+      "owner": "test-writer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "lib/pdca-plan.test.ts",
+        "app/api/plan/chat/route.test.ts",
+        "app/api/cycles/route.test.ts",
+        "lib/repo-cycles.test.ts",
+        "app/components/PlanPanel.test.tsx",
+        "test/mocks/generative-ai.ts"
+      ],
+      "reads": [
+        "evidence/EXP-009/request.md",
+        "app/api/notes/route.test.ts",
+        "lib/repo.test.ts"
+      ],
+      "optimistic": 0.3,
+      "likely": 0.5,
+      "pessimistic": 1.0,
+      "status": "done",
+      "started_at": "2026-09-30T10:03:03Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T10:08:07Z",
+      "actual_duration": 0.084
+    },
+    {
+      "id": "LIB",
+      "wbs": "2.2",
+      "name": "Plan の純粋な関数 (lib/pdca-plan.ts)",
+      "goal": "受け渡しの形どおりの検査・重ね合わせ・次の欄・最初の一言・予定への変換",
+      "deliverable": "lib/pdca-plan.ts",
+      "done_when": "tsc が通り export が §2 と一致",
+      "owner": "backend-implementer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "lib/pdca-plan.ts"
+      ],
+      "reads": [
+        "evidence/EXP-009/request.md",
+        "lib/projects.ts",
+        "lib/time-input.ts"
+      ],
+      "optimistic": 0.1,
+      "likely": 0.25,
+      "pessimistic": 0.5,
+      "status": "done",
+      "started_at": "2026-09-30T10:03:03Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T10:03:53Z",
+      "actual_duration": 0.014
+    },
+    {
+      "id": "SRVA",
+      "wbs": "2.3",
+      "name": "Plan の会話 API と計測",
+      "goal": "/api/plan/chat (JSON を返させる Gemini・mergePlan・429)・[perf] の fields_filled",
+      "deliverable": "app/api/plan/chat/route.ts・lib/perf.ts",
+      "done_when": "tsc が通り、プロンプトの約束 5 つが入っている",
+      "owner": "backend-implementer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "app/api/plan/chat/route.ts",
+        "lib/perf.ts"
+      ],
+      "reads": [
+        "evidence/EXP-009/request.md",
+        "app/api/chat/route.ts",
+        "lib/quota.ts"
+      ],
+      "optimistic": 0.2,
+      "likely": 0.4,
+      "pessimistic": 0.8,
+      "status": "done",
+      "started_at": "2026-09-30T10:03:03Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T10:05:08Z",
+      "actual_duration": 0.035
+    },
+    {
+      "id": "SRVB",
+      "wbs": "2.4",
+      "name": "cycles の表・問い合わせ・API",
+      "goal": "schema に cycles・repo に cycle の取得と保存 (owner で絞る)・/api/cycles",
+      "deliverable": "db/schema.sql・lib/repo.ts・app/api/cycles/route.ts",
+      "done_when": "tsc が通り、全問い合わせが tagged template で owner を絞り込みに使う",
+      "owner": "backend-implementer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "db/schema.sql",
+        "lib/repo.ts",
+        "app/api/cycles/route.ts"
+      ],
+      "reads": [
+        "evidence/EXP-009/request.md",
+        "app/api/notes/route.ts",
+        "lib/db.ts"
+      ],
+      "optimistic": 0.2,
+      "likely": 0.4,
+      "pessimistic": 0.8,
+      "status": "done",
+      "started_at": "2026-09-30T10:03:03Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T10:06:17Z",
+      "actual_duration": 0.054
+    },
+    {
+      "id": "UI",
+      "wbs": "2.5",
+      "name": "Plan の画面と配線",
+      "goal": "PlanPanel (最初の一言・会話・6 つの欄・保存・登録)・プロジェクト画面に Plan / ノートの切り替え",
+      "deliverable": "app/components/PlanPanel.tsx・app/page.tsx の差分",
+      "done_when": "tsc が通り、欄にラベル・aria-current=step・confirm/alert を使わない",
+      "owner": "frontend-implementer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "app/components/PlanPanel.tsx",
+        "app/page.tsx"
+      ],
+      "reads": [
+        "evidence/EXP-009/request.md",
+        "app/components/NotesPanel.tsx",
+        "app/components/ProjectPanel.tsx",
+        "app/components/TimeDialog.tsx"
+      ],
+      "optimistic": 0.4,
+      "likely": 0.7,
+      "pessimistic": 1.4,
+      "status": "done",
+      "started_at": "2026-09-30T10:03:03Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T10:05:54Z",
+      "actual_duration": 0.048
+    },
+    {
+      "id": "RUN",
+      "wbs": "3.1",
+      "name": "テスト・型・lint・build",
+      "goal": "生の結果",
+      "deliverable": "件数と失敗の全文",
+      "done_when": "4 つそろう",
+      "owner": "main",
+      "deps": [
+        "TST",
+        "LIB",
+        "SRVA",
+        "SRVB",
+        "UI"
+      ],
+      "files": [],
+      "reads": [
+        "app/",
+        "lib/",
+        "test/",
+        "db/"
+      ],
+      "optimistic": 0.05,
+      "likely": 0.1,
+      "pessimistic": 0.3,
+      "status": "done",
+      "started_at": "2026-09-30T10:09:02Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T10:09:22Z",
+      "actual_duration": 0.006
+    },
+    {
+      "id": "REV",
+      "wbs": "3.2",
+      "name": "レビュー (安全・a11y)",
+      "goal": "owner の絞り込み・プロンプトの注入・ログ、画面の a11y",
+      "deliverable": "blocking / warn / ok",
+      "done_when": "ファイル:行と再現手順",
+      "owner": "generic-security-reviewer + a11y-reviewer",
+      "deps": [
+        "SRVA",
+        "SRVB",
+        "UI"
+      ],
+      "files": [],
+      "reads": [
+        "app/api/plan/chat/route.ts",
+        "app/api/cycles/route.ts",
+        "lib/repo.ts",
+        "app/components/PlanPanel.tsx"
+      ],
+      "optimistic": 0.1,
+      "likely": 0.2,
+      "pessimistic": 0.4,
+      "status": "done",
+      "started_at": "2026-09-30T10:06:17Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T10:07:43Z",
+      "actual_duration": 0.024
+    },
+    {
+      "id": "MUT",
+      "wbs": "3.3",
+      "name": "計器の確認",
+      "goal": "owner の絞り込み・空の値で上書きしない・質問 1 つ、を壊して赤になるか",
+      "deliverable": "壊した箇所と赤の数",
+      "done_when": "壊した数と赤が合う",
+      "owner": "main",
+      "deps": [
+        "RUN"
+      ],
+      "files": [
+        "lib/repo.ts",
+        "lib/pdca-plan.ts"
+      ],
+      "reads": [
+        "lib/"
+      ],
+      "optimistic": 0.05,
+      "likely": 0.1,
+      "pessimistic": 0.3,
+      "status": "done",
+      "started_at": "2026-09-30T10:19:18Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T10:19:37Z",
+      "actual_duration": 0.005
+    },
+    {
+      "id": "FIX",
+      "wbs": "3.4",
+      "name": "差し戻し (a11y blocking 1 + warn・安全 warn 2・日付)",
+      "goal": "レビューの指摘を元の担当が直す (計画外)",
+      "deliverable": "PlanPanel・plan/chat route・pdca-plan の修正",
+      "done_when": "blocking 0・全件緑",
+      "owner": "frontend-implementer + backend-implementer",
+      "deps": [
+        "REV"
+      ],
+      "files": [
+        "app/components/PlanPanel.tsx",
+        "app/api/plan/chat/route.ts",
+        "lib/pdca-plan.ts"
+      ],
+      "reads": [],
+      "status": "done",
+      "started_at": "2026-09-30T10:07:44Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T10:09:01Z",
+      "actual_duration": 0.021
+    },
+    {
+      "id": "LAB",
+      "wbs": "4.1",
+      "name": "lab.md と commit",
+      "goal": "L1〜L7",
+      "deliverable": "evidence/EXP-009/lab.md",
+      "done_when": "blocking 0",
+      "owner": "main",
+      "deps": [
+        "RUN",
+        "REV",
+        "MUT",
+        "FIX"
+      ],
+      "files": [
+        "evidence/EXP-009/lab.md"
+      ],
+      "reads": [],
+      "optimistic": 0.05,
+      "likely": 0.1,
+      "pessimistic": 0.3,
+      "status": "done",
+      "started_at": "2026-09-30T10:20:22Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T10:20:33Z",
+      "actual_duration": 0.003
+    },
+    {
+      "id": "MIGRATE",
+      "wbs": "5.0",
+      "name": "本人: 移行を流す (cycles 表)",
+      "goal": "schema を流し直す",
+      "deliverable": "cycles・notes・projects",
+      "done_when": "3 つの表が出た",
+      "owner": "本人",
+      "deps": [
+        "LAB"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.02,
+      "likely": 0.05,
+      "pessimistic": 24
+    },
+    {
+      "id": "LOCAL",
+      "wbs": "5.1",
+      "name": "本人のローカル確認",
+      "goal": "誘導で Plan を決めて保存",
+      "deliverable": "一言・点数・[perf]",
+      "done_when": "本人が使った",
+      "owner": "本人",
+      "deps": [
+        "MIGRATE"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.2,
+      "likely": 0.5,
+      "pessimistic": 24
+    },
+    {
+      "id": "RETRO",
+      "wbs": "6.1",
+      "name": "振り返り (EXP-008・009 をまとめて)",
+      "goal": "retro.py・教訓・calibration",
+      "deliverable": "retro.md・cycle-lessons.md",
+      "done_when": "遅れと分け方の教訓を 1 行ずつ",
+      "owner": "main",
+      "deps": [
+        "LOCAL"
+      ],
+      "files": [
+        "docs/cycle-lessons.md"
+      ],
+      "reads": [],
+      "optimistic": 0.1,
+      "likely": 0.2,
+      "pessimistic": 0.4
+    }
+  ]
+}

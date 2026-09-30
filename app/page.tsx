@@ -9,6 +9,7 @@ import { hasTimeMarker, stripTimeMarker } from "../lib/time-input";
 import { TimeDialog } from "./components/TimeDialog";
 import { ProjectPanel, useProjectWorkspace } from "./components/ProjectPanel";
 import { NotesPanel } from "./components/NotesPanel";
+import { ProjectPlanTab } from "./components/PlanPanel";
 
 // --- 型定義 ---
 
@@ -71,6 +72,8 @@ function AppContent() {
   // 右の列の切り替え (EXP-008)。既定はプロジェクト
   const [sideTab, setSideTab] = useState<'projects' | 'calendar'>('projects');
   const workspace = useProjectWorkspace(Boolean(session));
+  // 選んだプロジェクトの中の切り替え (EXP-009)。既定は Plan
+  const [projectTab, setProjectTab] = useState<'plan' | 'notes'>('plan');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // 初回表示の計測 (measure → improve ループ M0): 最初の予定取得の完了時に 1 回だけ出す
@@ -380,12 +383,39 @@ function AppContent() {
               )}
             </div>
             {workspace.selected && (
-              <NotesPanel
-                project={workspace.selected}
-                notes={workspace.notes}
-                onCreate={(input) => void workspace.createNote(input)}
-                onDelete={(id) => void workspace.deleteNote(id)}
-              />
+              <div className="flex flex-col gap-4">
+                {/* 選んだプロジェクトの Plan / ノートの切り替え (EXP-009)。既定は Plan */}
+                <div role="tablist" aria-label="プロジェクトの中身" className="flex gap-2">
+                  {([['plan', '📝', 'Plan'], ['notes', '📓', 'ノート']] as const).map(([tab, icon, label]) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      role="tab"
+                      id={`project-tab-${tab}`}
+                      aria-selected={projectTab === tab}
+                      aria-controls={`project-panel-${tab}`}
+                      onClick={() => setProjectTab(tab)}
+                      className={`flex-1 px-3 py-2 rounded-lg border font-bold text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${projectTab === tab ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'}`}
+                    >
+                      <span aria-hidden="true">{icon}</span> {label}
+                    </button>
+                  ))}
+                </div>
+                {projectTab === 'plan' ? (
+                  <div role="tabpanel" id="project-panel-plan" aria-labelledby="project-tab-plan">
+                    <ProjectPlanTab key={workspace.selected.id} project={workspace.selected} />
+                  </div>
+                ) : (
+                  <div role="tabpanel" id="project-panel-notes" aria-labelledby="project-tab-notes">
+                    <NotesPanel
+                      project={workspace.selected}
+                      notes={workspace.notes}
+                      onCreate={(input) => void workspace.createNote(input)}
+                      onDelete={(id) => void workspace.deleteNote(id)}
+                    />
+                  </div>
+                )}
+              </div>
             )}
             <ProjectPanel
               projects={workspace.projects}
