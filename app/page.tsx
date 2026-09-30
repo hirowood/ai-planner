@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { SessionProvider, useSession, signIn, signOut } from "next-auth/react";
 import { formatPerfLine } from "../lib/perf";
+import { MessageContent } from "./components/MessageContent";
 
 // --- 型定義 ---
 
@@ -278,8 +279,9 @@ function AppContent() {
         <main className="flex-1 overflow-y-auto p-4 space-y-4">
            {messages.map((msg, i) => (
              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-               <div className={`max-w-[85%] p-3 rounded-lg shadow-sm whitespace-pre-wrap ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>
-                 {msg.content}
+               <div className={`max-w-[85%] p-3 rounded-lg shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white whitespace-pre-wrap' : 'bg-gray-100'}`}>
+                 {/* AI の返答は Markdown として整形 (EXP-003)。本人のメッセージは文字のまま */}
+                 {msg.role === 'assistant' ? <MessageContent text={msg.content} /> : msg.content}
                  {msg.role === 'assistant' && i === messages.length - 1 && pendingPlan && (
                    <div className="mt-4 pt-4 border-t border-gray-300">
                      <p className="text-sm font-bold text-gray-600 mb-2">💡 カレンダーに追加しますか？</p>
