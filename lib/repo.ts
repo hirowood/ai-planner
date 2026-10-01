@@ -4,6 +4,7 @@
 import type { Sql } from "./db";
 import type { Category, Note, NoteInput, NoteKind, Project, ProjectInput } from "./projects";
 import { EMPTY_PLAN, parsePlanDraft, type PlanDraft } from "./pdca-plan";
+import type { PastProject } from "./setup-start";
 import { HISTORY_LIMIT, type MessagesInput, type StoredMessage, type Thread } from "./messages";
 import {
   CHILD_LEVEL,
@@ -425,3 +426,37 @@ export async function deleteItem(sql: Sql, owner: string, id: string): Promise<b
   if (await isOwnedKgi(sql, owner, id)) return KGI_LOCKED;
   return false;
 }
+
+// --- 過去のプロジェクトの傾向 (EXP-027) ---
+
+/** owner のプロジェクト (新しい順) と、その KGI の題と状態・階層の状態ごとの件数。すべて owner で絞る。 */
+export async function listPastProjects(sql: Sql, owner: string, limit: number): Promise<PastProject[]> {
+  const rows = await sql`
+    select p.id, p.name, p.category, p.purpose,
+      (select k.title from plan_items k where k.project_id = p.id and k.owner = ${owner} and k.level = 'kgi' limit 1) as kgi_title,
+      (select k.status from plan_items k where k.project_id = p.id and k.owner = ${owner} and k.level = 'kgi' limit 1) as kgi_status,
+      (select count(*) from plan_items i where i.project_id = p.id and i.owner = ${owner} and i.status = 'todo') as c_todo,
+      (select count(*) from plan_items i where i.project_id = p.id and i.owner = ${owner} and i.status = 'done') as c_done,
+      (select count(*) from plan_items i where i.project_id = p.id and i.owner = ${owner} and i.status = 'shelved') as c_shelved,
+      (select count(*) from plan_items i where i.project_id = p.id and i.owner = ${owner} and i.status = 'failed') as c_failed,
+      (select count(*) from plan_items i where i.project_id = p.id and i.owner = ${owner} and i.status = 'succeeded') as c_succeeded,
+      (select count(*) from plan_items i where i.project_id = p.id and i.owner = ${owner} and i.status = 'adjusted') as c_adjusted
+    from projects p
+    where p.owner = ${owner} and p.archived_at is null
+    order by p.created_at desc
+    limit ${limit}
+  `;
+  const n = (v: unknown) => Number(v ?? 0) || 0;
+  return rows.map((r) => ({
+    name: String(r.name ?? ""),
+    category: String(r.category ?? ""),
+    purpose: String(r.purpose ?? ""),
+    kgiTitle: r.kgi_title == null ? null : String(r.kgi_title),
+    kgiStatus: r.kgi_status == null ? null : String(r.kgi_status),
+    counts: {
+      todo: n(r.c_todo), done: n(r.c_done), shelved: n(r.c_shelved),
+      failed: n(r.c_failed), succeeded: n(r.c_succeeded), adjusted: n(r.c_adjusted),
+    },
+  }));
+}
+

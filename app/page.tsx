@@ -18,6 +18,7 @@ import { AnswerChoices } from "./components/AnswerChoices";
 import { SmartPanel } from "./components/SmartPanel";
 import { QuickReplies } from "./components/QuickReplies";
 import { buildQuickReplies } from "../lib/quick-replies";
+import { DEFAULT_START_CHOICES, OPENING } from "../lib/setup-start";
 import { EMPTY_SMART, isSmartReady, parseSmartDraft, todayJst, type SmartDraft } from "../lib/smart";
 import { parseChoices } from "../lib/coach-choices";
 
@@ -409,6 +410,22 @@ function AppContent() {
   const choices = startChoices({ projectSelected: Boolean(workspace.selected), hasLastProject });
   const firstName = session?.user?.name?.trim().split(/\s+/)[0] || null;
 
+  // 過去の傾向から最初の一言と候補を作る (EXP-027)。まだ本人が何も送っていないときだけ差し替える
+  const loadSetupStart = async () => {
+    try {
+      const res = await fetch('/api/setup/start');
+      if (!res.ok) return;
+      const body: unknown = await res.json().catch(() => null);
+      const message = (body as { message?: unknown } | null)?.message;
+      const picked = parseChoices((body as { choices?: unknown } | null)?.choices);
+      if (typeof message !== 'string') return;
+      setMessages((prev) => (prev.length === 1 && prev[0].role === 'assistant' ? [{ role: 'assistant', content: message }] : prev));
+      setAnswerChoices((prev) => (picked.length > 0 && prev === DEFAULT_START_CHOICES ? picked : prev));
+    } catch {
+      // 既定の一言と候補のまま進める
+    }
+  };
+
   // 作成モードをやめる (下書きは捨てる・データベースには何も書いていない)
   const exitSetup = () => {
     setSetupDraft(null);
@@ -460,9 +477,11 @@ function AppContent() {
         // 会話で SMART を決めて作る (EXP-018)。手で作る欄はプロジェクトのタブに残る
         setSideTab('projects');
         setSetupDraft({ ...EMPTY_SMART });
-        setMessages([{ role: 'assistant', content: '新しい目標を一緒に決めましょう。まず、具体的に何をしたいですか？' }]);
-        setAnswerChoices([]);
+        // まず既定の一言と候補を出し、過去の傾向から作った一言と候補が届いたら差し替える (EXP-027)
+        setMessages([{ role: 'assistant', content: OPENING }]);
+        setAnswerChoices(DEFAULT_START_CHOICES);
         setTimeout(() => inputRef.current?.focus(), 0);
+        void loadSetupStart();
         return;
       case 'calendar':
         setSideTab('calendar');
