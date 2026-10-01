@@ -33,6 +33,7 @@ import {
   createItem,
   getLatestCycle,
   getProject,
+  listDailyLogs,
   listItems,
   listMessages,
   listNotes,
@@ -40,6 +41,7 @@ import {
   saveCycle,
 } from "../../../lib/repo";
 import { LEVEL_LABEL, type ItemLevel, type PlanItem } from "../../../lib/plan-items";
+import { dailyText } from "../../../lib/daily";
 import { hierarchyText, nextHierarchyStep, parseProposedItems, type HierarchyStep } from "../../../lib/hierarchy-step";
 
 // --- プロジェクトの記録を見て話す 1 本の会話 (EXP-016) ---
@@ -108,6 +110,7 @@ function buildPrompt(
   message: string,
   items: PlanItem[] = [],
   step: HierarchyStep | null = null,
+  daily = "(まだ無し)",
 ): string {
   const next = nextField(records.plan);
   const order = PLAN_FIELDS.map((f, i) => `${i + 1}. ${f} (${PLAN_FIELD_LABEL[f]})`).join("\n");
@@ -138,6 +141,9 @@ ${buildRecordsText(records)}
 
 #### 階層 (KGI → KPI → KDI → ToDo)
 ${hierarchyText(items)}
+
+#### 毎日の記録 (新しい順・〇 できた / △ 少し / × できなかった)
+${daily}
 </Records>
 
 ### 階層の次に決める段 (EXP-019)
@@ -252,7 +258,8 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
       const history = await listMessages(sql, owner, projectId, THREAD);
       const past = await listPastCycles(sql, owner, projectId, cycle ? cycle.id : null, PAST_CYCLES_LIMIT);
       const items = await listItems(sql, owner, projectId);
-      return { project, cycle, notes, history, past, items };
+      const daily = await listDailyLogs(sql, owner, projectId);
+      return { project, cycle, notes, history, past, items, daily };
     });
     if (!loaded) return NextResponse.json({ error: "プロジェクトが見つかりません" }, { status: 404 });
 
@@ -268,7 +275,12 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
       .slice(-HISTORY_TURNS)
       .map((m) => ({ role: m.role, content: [...m.content].slice(0, MAX_MESSAGE_LENGTH).join("") }));
     const counts = recordCounts(records);
-    perf.set({ history_len: history.length, context_notes: counts.notes, context_cycles: counts.pastCycles });
+    perf.set({
+      history_len: history.length,
+      context_notes: counts.notes,
+      context_cycles: counts.pastCycles,
+      context_days: loaded.daily.length,
+    });
 
     // --- AI に聞く ---
     const model = genAI.getGenerativeModel({
@@ -276,7 +288,7 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
       generationConfig: { responseMimeType: "application/json", maxOutputTokens: 1024 },
     });
     const step = nextHierarchyStep(loaded.items);
-    const prompt = buildPrompt(records, history, message, loaded.items, step);
+    const prompt = buildPrompt(records, history, message, loaded.items, step, dailyText(loaded.daily));
     const result = await perf.time("gemini_ms", () => withGeminiRetry(() => model.generateContent(prompt)));
 
     const out = parseModelOutput(result.response.text());

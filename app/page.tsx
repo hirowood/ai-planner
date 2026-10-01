@@ -12,6 +12,7 @@ import { NotesPanel } from "./components/NotesPanel";
 import { PlanFields, usePlanStore } from "./components/PlanFields";
 import { PlanTree, useItems } from "./components/PlanTree";
 import { itemsAddedNotice } from "../lib/hierarchy-step";
+import { DailyView, useDaily } from "./components/DailyPanel";
 import { parsePlanDraft, PLAN_FIELDS, PLAN_FIELD_LABEL, type PlanDraft } from "../lib/pdca-plan";
 import { greetingFor, startMessage, startChoices, type Choice } from "../lib/greeting";
 import { StartChoices } from "./components/StartChoices";
@@ -110,7 +111,8 @@ function AppContent() {
   const [sideTab, setSideTab] = useState<'projects' | 'calendar'>('projects');
   const workspace = useProjectWorkspace(Boolean(session));
   // 選んだプロジェクトの中の切り替え (EXP-009)。既定は Plan
-  const [projectTab, setProjectTab] = useState<'plan' | 'notes'>('plan');
+  // 既定は「今日」(EXP-020): 毎日開いて Do と Check を回す
+  const [projectTab, setProjectTab] = useState<'today' | 'plan' | 'notes'>('today');
   // 選んだプロジェクトの thread "chat" の読み込み中 (EXP-010)
   const [historyLoading, setHistoryLoading] = useState(false);
   // いま会話が属するプロジェクト。遅れて届いた古い読み込みを捨て、保存先を決める
@@ -121,6 +123,7 @@ function AppContent() {
   const planStore = usePlanStore(workspace.selectedId);
   // 選んだプロジェクトの階層 (KGI → KPI → KDI → ToDo)
   const it = useItems(workspace.selectedId);
+  const daily = useDaily(workspace.selectedId);
   // 階層の KGI (固定) を Plan の要点に読み取り専用で出す (EXP-018)
   const kgiItem = it.items.find((i) => i.level === 'kgi');
   const kgiText = kgiItem
@@ -800,7 +803,7 @@ function AppContent() {
               <div className="flex flex-col gap-4">
                 {/* 選んだプロジェクトの Plan / ノートの切り替え (EXP-009)。既定は Plan */}
                 <div role="tablist" aria-label="プロジェクトの中身" className="flex gap-2">
-                  {([['plan', '📝', 'Plan'], ['notes', '📓', 'ノート']] as const).map(([tab, icon, label]) => (
+                  {([['today', '☀️', '今日'], ['plan', '📝', 'Plan'], ['notes', '📓', 'ノート']] as const).map(([tab, icon, label]) => (
                     <button
                       key={tab}
                       type="button"
@@ -815,7 +818,22 @@ function AppContent() {
                     </button>
                   ))}
                 </div>
-                {projectTab === 'plan' ? (
+                {projectTab === 'today' ? (
+                  <div role="tabpanel" id="project-panel-today" aria-labelledby="project-tab-today">
+                    <DailyView
+                      key={workspace.selected.id}
+                      today={daily.today}
+                      items={it.items}
+                      logs={daily.logs}
+                      problem={daily.problem}
+                      saving={daily.saving}
+                      saved={daily.savedDay === daily.today}
+                      onUpdateItem={(id, p) => void it.update(id, p)}
+                      onSave={(d) => void daily.save(daily.today, d)}
+                      onAsk={(text) => { void handleSendMessage(text); setTimeout(() => inputRef.current?.focus(), 0); }}
+                    />
+                  </div>
+                ) : projectTab === 'plan' ? (
                   <div role="tabpanel" id="project-panel-plan" aria-labelledby="project-tab-plan" className="flex flex-col gap-6">
                     <section aria-labelledby="plan-tree-heading" className="flex flex-col gap-3">
                       <h3 id="plan-tree-heading" className="text-base font-bold text-gray-800"><span aria-hidden="true">🌳</span> 階層 (KGI → KPI → KDI → ToDo)</h3>

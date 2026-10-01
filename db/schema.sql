@@ -71,3 +71,17 @@ create table if not exists plan_items (
 );
 
 create index if not exists plan_items_owner_project_idx on plan_items (owner, project_id);
+
+-- EXP-020: 1 日の記録 (〇△×・良かったこと 3 つ・明日はこうする)。プロジェクトごとに 1 日 1 件
+create table if not exists daily_logs (
+  id uuid primary key default gen_random_uuid(),
+  owner text not null,
+  project_id uuid not null references projects (id) on delete cascade,
+  day date not null,
+  mark text not null,
+  goods jsonb not null default '[]'::jsonb,
+  tomorrow text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (owner, project_id, day)
+);

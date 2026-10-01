@@ -32,7 +32,7 @@ try {
   }
   const rows = await sql`
     select table_name from information_schema.tables
-    where table_schema = current_schema() and table_name in ('projects', 'notes', 'cycles', 'messages', 'plan_items')
+    where table_schema = current_schema() and table_name in ('projects', 'notes', 'cycles', 'messages', 'plan_items', 'daily_logs')
     order by table_name
   `;
   for (const row of rows) console.log(row.table_name);

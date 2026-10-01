@@ -5,6 +5,7 @@ import type { Sql } from "./db";
 import type { Category, Note, NoteInput, NoteKind, Project, ProjectInput } from "./projects";
 import { EMPTY_PLAN, parsePlanDraft, type PlanDraft } from "./pdca-plan";
 import type { PastProject } from "./setup-start";
+import { DAILY_LIMIT, type DailyInput, type DailyLog, type DailyMark } from "./daily";
 import { HISTORY_LIMIT, type MessagesInput, type StoredMessage, type Thread } from "./messages";
 import {
   CHILD_LEVEL,
@@ -460,3 +461,56 @@ export async function listPastProjects(sql: Sql, owner: string, limit: number): 
   }));
 }
 
+
+// --- 1 日の記録 (EXP-020) ---
+
+function toGoods(v: unknown): string[] {
+  let x: unknown = v;
+  if (typeof v === "string") {
+    try {
+      x = JSON.parse(v);
+    } catch {
+      return [];
+    }
+  }
+  return Array.isArray(x) ? x.filter((g): g is string => typeof g === "string") : [];
+}
+
+function toDailyLog(r: Row): DailyLog {
+  return {
+    projectId: String(r.project_id),
+    day: toDateOnly(r.day),
+    mark: String(r.mark) as DailyMark,
+    goods: toGoods(r.goods),
+    tomorrow: String(r.tomorrow ?? ""),
+    updatedAt: toIso(r.updated_at),
+  };
+}
+
+/** 持ち主のプロジェクトの最近の記録 (新しい日から limit 件)。 */
+export async function listDailyLogs(sql: Sql, owner: string, projectId: string, limit: number = DAILY_LIMIT): Promise<DailyLog[]> {
+  const rows = await sql`
+    select project_id, day, mark, goods, tomorrow, updated_at from daily_logs
+    where owner = ${owner} and project_id = ${projectId}
+    order by day desc
+    limit ${limit}
+  `;
+  return rows.map(toDailyLog);
+}
+
+/** 持ち主のプロジェクト (しまっていない) のときだけ、その日の記録を作るか上書きする。合わなければ null。 */
+export async function upsertDailyLog(sql: Sql, owner: string, input: DailyInput): Promise<DailyLog | null> {
+  const goodsJson = JSON.stringify(input.goods);
+  const rows = await sql`
+    insert into daily_logs (owner, project_id, day, mark, goods, tomorrow)
+    select ${owner}, ${input.projectId}, ${input.day}::date, ${input.mark}, ${goodsJson}::jsonb, ${input.tomorrow}
+    where exists (
+      select 1 from projects
+      where id = ${input.projectId} and owner = ${owner} and archived_at is null
+    )
+    on conflict (owner, project_id, day) do update
+      set mark = excluded.mark, goods = excluded.goods, tomorrow = excluded.tomorrow, updated_at = now()
+    returning project_id, day, mark, goods, tomorrow, updated_at
+  `;
+  return rows.length > 0 ? toDailyLog(rows[0]) : null;
+}
