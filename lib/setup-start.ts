@@ -15,8 +15,14 @@ export type PastProject = {
 };
 
 export const OPENING = "新しい目標を一緒に決めましょう。まず、具体的に何をしたいですか？";
-export const DEFAULT_START_CHOICES = ["毎日の習慣を作りたい", "資格・試験に合格したい", "仕事の成果を上げたい", "まだ決めていない"];
+// 候補は KGI (成果・なりたい状態) の言い方にする。「毎日〜する」などの行動は KDI なので候補にしない (EXP-029)
+export const DEFAULT_START_CHOICES = ["健康的な生活習慣を身につける", "資格・試験に合格する", "仕事で成果を出す", "まだ決めていない"];
 export const PAST_LIMIT = 10;
+
+/** プロジェクトを作った直後の一言 (画面で作る・EXP-029)。次は KPI へ進む。 */
+export function afterCreateMessage(name: string): string {
+  return `『${name}』の KGI ができました (固定)。次は、期限までに KGI を達成できているかを途中で測る KPI を決めましょう。何で進み具合を測りますか？`;
+}
 const TEXT_CHARS = 60;
 
 function cut(s: string): string {

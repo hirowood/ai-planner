@@ -18,7 +18,7 @@ import { AnswerChoices } from "./components/AnswerChoices";
 import { SmartPanel } from "./components/SmartPanel";
 import { QuickReplies } from "./components/QuickReplies";
 import { buildQuickReplies } from "../lib/quick-replies";
-import { DEFAULT_START_CHOICES, OPENING } from "../lib/setup-start";
+import { DEFAULT_START_CHOICES, OPENING, afterCreateMessage } from "../lib/setup-start";
 import { OVERLOADED_MESSAGE } from "../lib/gemini-retry";
 import { EMPTY_SMART, isSmartReady, parseSmartDraft, todayJst, type SmartDraft } from "../lib/smart";
 import { parseChoices } from "../lib/coach-choices";
@@ -132,6 +132,8 @@ function AppContent() {
   // 会話で SMART を決めて新しいプロジェクトを作るモード (EXP-018)。null なら通常
   const [setupDraft, setSetupDraft] = useState<SmartDraft | null>(null);
   const [creatingProject, setCreatingProject] = useState(false);
+  // 作った直後に会話へ出す一言 (EXP-029)。そのプロジェクトの会話を読み込んだ後に足す (effect から最新を読むため ref)
+  const pendingAfterCreate = useRef<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // 最後に開いたプロジェクト (EXP-021)。端末から読むので初回描画の後に入れる
   const [lastProjectId, setLastProjectId] = useState<string | null>(null);
@@ -201,7 +203,9 @@ function AppContent() {
         console.error("Failed to load chat messages:", err);
       }
       if (chatProjectId.current !== projectId) return;
-      setMessages(loaded ?? []);
+      const welcome = pendingAfterCreate.current;
+      pendingAfterCreate.current = null;
+      setMessages([...(loaded ?? []), ...(welcome ? [{ role: 'assistant' as const, content: welcome }] : [])]);
       setChatProblem(loaded === null ? '会話を読み込めませんでした' : null);
       setHistoryLoading(false);
     })();
@@ -470,9 +474,10 @@ function AppContent() {
       }
       await workspace.loadProjects();
       setSetupDraft(null);
-      setMessages([]);
       setAnswerChoices([]);
       workspace.select(project.id);
+      // 作った直後は KPI へ案内する (EXP-029)。会話の読み込みが空でもこの一言が残るよう、選んだ後に置く
+      pendingAfterCreate.current = afterCreateMessage(typeof project.name === 'string' ? project.name : '');
       setPlanUpdated(`『${typeof project.name === 'string' ? project.name : ''}』を作りました。KGI は固定されました`);
     } catch (error: unknown) {
       console.error("Setup create Error:", error instanceof Error ? error.name : typeof error);
