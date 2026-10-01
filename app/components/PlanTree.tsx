@@ -96,8 +96,11 @@ export function PlanTree({ items, lastParentId, onCreate, onUpdate, onDelete, on
   const hasKgi = items.some((i) => i.level === 'kgi');
 
   const parentOptions = flat.filter((n) => CHILD_LEVEL[n.level] !== null);
-  const defaultParentId = nextParentFor(items, lastParentId)?.id ?? '';
-  const chosenStillExists = parentChoice === '' || (parentChoice !== null && parentOptions.some((p) => p.id === parentChoice));
+  // KGI はプロジェクトに 1 つ (EXP-026): KGI があれば一番上には足せず、既定は KGI の下 (= KPI)
+  const kgiItem = items.find((i) => i.level === 'kgi');
+  const defaultParentId = nextParentFor(items, lastParentId)?.id ?? kgiItem?.id ?? '';
+  const chosenStillExists =
+    (parentChoice === '' && !hasKgi) || (parentChoice !== null && parentOptions.some((p) => p.id === parentChoice));
   const selectedParentId = parentChoice !== null && chosenStillExists ? parentChoice : defaultParentId;
   const selectedParent = selectedParentId ? byId.get(selectedParentId) ?? null : null;
   const derivedLevel: ItemLevel | null = selectedParent ? CHILD_LEVEL[selectedParent.level] : 'kgi';
@@ -376,7 +379,7 @@ export function PlanTree({ items, lastParentId, onCreate, onUpdate, onDelete, on
             }}
             className={inputClass}
           >
-            <option value="">(一番上: KGI)</option>
+            {!hasKgi && <option value="">(一番上: KGI)</option>}
             {parentOptions.map((p) => (
               <option key={p.id} value={p.id}>{`${LEVEL_LABEL[p.level]}: ${p.title}`}</option>
             ))}

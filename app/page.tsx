@@ -16,6 +16,8 @@ import { greetingFor, startMessage, startChoices, type Choice } from "../lib/gre
 import { StartChoices } from "./components/StartChoices";
 import { AnswerChoices } from "./components/AnswerChoices";
 import { SmartPanel } from "./components/SmartPanel";
+import { QuickReplies } from "./components/QuickReplies";
+import { buildQuickReplies } from "../lib/quick-replies";
 import { EMPTY_SMART, isSmartReady, parseSmartDraft, todayJst, type SmartDraft } from "../lib/smart";
 import { parseChoices } from "../lib/coach-choices";
 
@@ -667,6 +669,20 @@ function AppContent() {
         </main>
 
         <footer className="p-4 border-t">
+          {/* よく使う入力 (EXP-025): プロジェクトを選んでいる間、記録と過去の発言から作る。押すと入力欄に入る */}
+          {workspace.selectedId && !setupDraft && (
+            <QuickReplies
+              replies={buildQuickReplies({
+                items: it.items,
+                notes: workspace.notes,
+                userMessages: messages.filter((m) => m.role === 'user').map((m) => m.content),
+              })}
+              onPick={(text) => {
+                setInput(text);
+                inputRef.current?.focus();
+              }}
+            />
+          )}
           <form onSubmit={onFormSubmit} className="flex gap-2">
             <label htmlFor="chat-input" className="sr-only">メッセージ</label>
             <input

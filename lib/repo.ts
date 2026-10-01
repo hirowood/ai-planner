@@ -327,7 +327,10 @@ export async function listItems(sql: Sql, owner: string, projectId: string): Pro
  * プロジェクトが owner のもの (しまっていない) で、親があれば同じプロジェクトの owner の項目で
  * 親の段の子が input.level のときだけ作る。どれかが合わなければ null。
  */
-export async function createItem(sql: Sql, owner: string, input: ItemInput): Promise<PlanItem | null> {
+/** KGI はプロジェクトに 1 つ (EXP-026)。もう KGI があるところへ 2 つ目を作ろうとしたらこれを返す。 */
+export const KGI_EXISTS = "kgi_exists" as const;
+
+export async function createItem(sql: Sql, owner: string, input: ItemInput): Promise<PlanItem | null | typeof KGI_EXISTS> {
   const dueDate = input.dueDate === "" ? null : input.dueDate;
   const expectedParentLevel = parentLevelOf(input.level);
   if (input.parentId === null) {
@@ -340,9 +343,22 @@ export async function createItem(sql: Sql, owner: string, input: ItemInput): Pro
         select 1 from projects
         where id = ${input.projectId} and owner = ${owner} and archived_at is null
       )
+      and not exists (
+        select 1 from plan_items
+        where project_id = ${input.projectId} and owner = ${owner} and level = 'kgi'
+      )
       returning id, project_id, parent_id, level, title, target, due_date, status, created_at, updated_at
     `;
-    return rows.length > 0 ? toItem(rows[0]) : null;
+    if (rows.length > 0) return toItem(rows[0]);
+    // 作れなかった理由が「もう KGI がある」なら、無い・他人と区別して返す
+    // プロジェクトが owner のもので、その中に KGI があるときだけ「もうある」とする (他人のプロジェクトは null のまま)
+    const existing = await sql`
+      select 1 from plan_items i
+      join projects p on p.id = i.project_id
+      where i.project_id = ${input.projectId} and i.owner = ${owner} and i.level = 'kgi'
+        and p.owner = ${owner} and p.archived_at is null
+    `;
+    return existing.length > 0 ? KGI_EXISTS : null;
   }
   // kgi は親を持たない
   if (expectedParentLevel === null) return null;

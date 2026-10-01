@@ -60,8 +60,9 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
       });
       return { project, kgi, cycle };
     });
-    perf.set({ row_count: created.kgi ? 3 : 1 });
-    if (!created.kgi || !created.cycle) {
+    const kgiOk = created.kgi !== null && typeof created.kgi === "object";
+    perf.set({ row_count: kgiOk ? 3 : 1 });
+    if (!kgiOk || !created.cycle) {
       return NextResponse.json({ error: "KGI を作れませんでした" }, { status: 500 });
     }
     return NextResponse.json({ project: created.project, kgi: created.kgi }, { status: 201 });

@@ -5,7 +5,7 @@ import { startPerf } from "../../../lib/perf";
 import { DbNotConfigured, getSql } from "../../../lib/db";
 import { isUuid } from "../../../lib/projects";
 import { parseItemInput } from "../../../lib/plan-items";
-import { createItem, listItems } from "../../../lib/repo";
+import { KGI_EXISTS, createItem, listItems } from "../../../lib/repo";
 
 // --- プロジェクトの中の階層 (EXP-017) ---
 // owner はセッションのメール。ログにタイトル・目標値・メール・接続文字列は出さない。
@@ -89,6 +89,11 @@ async function handlePost(req: Request, perf: Perf): Promise<NextResponse> {
   try {
     const sql = getSql();
     const item = await perf.time("db_ms", () => createItem(sql, owner, input));
+    if (item === KGI_EXISTS) {
+      // KGI はプロジェクトに 1 つ (EXP-026)
+      perf.set({ row_count: 0 });
+      return NextResponse.json({ error: "KGI はプロジェクトに 1 つです。KGI に足せるのは KPI です" }, { status: 409 });
+    }
     perf.set({ row_count: item ? 1 : 0 });
     if (!item) return NextResponse.json({ error: "プロジェクトか親が見つかりません" }, { status: 404 });
     return NextResponse.json({ item }, { status: 201 });
