@@ -6,6 +6,7 @@ import { startPerf } from "../../../lib/perf";
 import { quotaBody, quotaKind } from "../../../lib/quota";
 import { GEMINI_MODEL } from "../../../lib/model";
 import { parseChoices } from "../../../lib/coach-choices";
+import { OVERLOADED_MESSAGE, isOverloaded, withGeminiRetry } from "../../../lib/gemini-retry";
 import { neutralize } from "../../../lib/coach-context";
 import {
   SMART_FIELDS,
@@ -154,7 +155,7 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
       model: GEMINI_MODEL,
       generationConfig: { responseMimeType: "application/json", maxOutputTokens: 1024 },
     });
-    const result = await perf.time("gemini_ms", () => model.generateContent(buildPrompt(draft, history, message, today)));
+    const result = await perf.time("gemini_ms", () => withGeminiRetry(() => model.generateContent(buildPrompt(draft, history, message, today))));
     const out = parseModelOutput(result.response.text());
     const merged = out ? mergeSmart(draft, out.draft) : draft;
     const choices = out ? out.choices : [];
@@ -173,6 +174,8 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
     const status = (error as { status?: unknown })?.status;
     console.error("Setup API error:", error instanceof Error ? error.name : typeof error, typeof status === "number" ? status : "");
     if (is429(error) && isGenAIError(error)) return NextResponse.json(quotaBody(quotaKind(error)), { status: 429 });
+    // 1 回送り直しても混み合っている (EXP-028)
+    if (isOverloaded(error)) return NextResponse.json({ error: OVERLOADED_MESSAGE, kind: "overloaded" }, { status: 503 });
     return NextResponse.json({ error: "サーバー内部でエラーが発生しました。" }, { status: 500 });
   }
 }

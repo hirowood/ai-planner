@@ -18,6 +18,7 @@ import {
 } from "../../../lib/pdca-plan";
 import { TIME_MARKER, hasTimeMarker, stripTimeMarker } from "../../../lib/time-input";
 import { parseChoices } from "../../../lib/coach-choices";
+import { OVERLOADED_MESSAGE, isOverloaded, withGeminiRetry } from "../../../lib/gemini-retry";
 import {
   NOTES_LIMIT,
   PAST_CYCLES_LIMIT,
@@ -234,7 +235,7 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
       generationConfig: { responseMimeType: "application/json", maxOutputTokens: 1024 },
     });
     const prompt = buildPrompt(records, history, message);
-    const result = await perf.time("gemini_ms", () => model.generateContent(prompt));
+    const result = await perf.time("gemini_ms", () => withGeminiRetry(() => model.generateContent(prompt)));
 
     const out = parseModelOutput(result.response.text());
     const rawReply = out ? out.reply : FALLBACK_REPLY;
@@ -283,6 +284,8 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
     if (is429(error) && isGenAIError(error)) {
       return NextResponse.json(quotaBody(quotaKind(error)), { status: 429 });
     }
+    // 1 回送り直しても混み合っている (EXP-028)
+    if (isOverloaded(error)) return NextResponse.json({ error: OVERLOADED_MESSAGE, kind: "overloaded" }, { status: 503 });
     return NextResponse.json({ error: "サーバー内部でエラーが発生しました。" }, { status: 500 });
   }
 }

@@ -6,6 +6,7 @@ import { startPerf } from "../../../../lib/perf";
 import { GEMINI_MODEL } from "../../../../lib/model";
 import { DbNotConfigured, getSql } from "../../../../lib/db";
 import { parseChoices } from "../../../../lib/coach-choices";
+import { isOverloaded, withGeminiRetry } from "../../../../lib/gemini-retry";
 import { listPastProjects } from "../../../../lib/repo";
 import { DEFAULT_START_CHOICES, OPENING, PAST_LIMIT, summarizePast } from "../../../../lib/setup-start";
 
@@ -83,7 +84,7 @@ async function handle(perf: Perf): Promise<Response> {
       model: GEMINI_MODEL,
       generationConfig: { responseMimeType: "application/json", maxOutputTokens: 512 },
     });
-    const result = await perf.time("gemini_ms", () => model.generateContent(buildPrompt(summarizePast(past))));
+    const result = await perf.time("gemini_ms", () => withGeminiRetry(() => model.generateContent(buildPrompt(summarizePast(past)))));
     let parsed: unknown;
     try {
       parsed = JSON.parse(result.response.text());
@@ -104,6 +105,12 @@ async function handle(perf: Perf): Promise<Response> {
     const status = (error as { status?: unknown })?.status;
     console.error("Setup start API error:", error instanceof Error ? error.name : typeof error, typeof status === "number" ? status : "");
     perf.set({ choices_count: DEFAULT_START_CHOICES.length });
-    return fallback(status === 429 ? "(今日の AI の上限のため、過去の傾向の分析はお休みです)" : undefined);
+    return fallback(
+      status === 429
+        ? "(今日の AI の上限のため、過去の傾向の分析はお休みです)"
+        : isOverloaded(error)
+          ? "(AI が混み合っているため、過去の傾向の分析はお休みです)"
+          : undefined,
+    );
   }
 }

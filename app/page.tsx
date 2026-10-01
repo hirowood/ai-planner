@@ -19,6 +19,7 @@ import { SmartPanel } from "./components/SmartPanel";
 import { QuickReplies } from "./components/QuickReplies";
 import { buildQuickReplies } from "../lib/quick-replies";
 import { DEFAULT_START_CHOICES, OPENING } from "../lib/setup-start";
+import { OVERLOADED_MESSAGE } from "../lib/gemini-retry";
 import { EMPTY_SMART, isSmartReady, parseSmartDraft, todayJst, type SmartDraft } from "../lib/smart";
 import { parseChoices } from "../lib/coach-choices";
 
@@ -268,6 +269,13 @@ function AppContent() {
           setInput(text);
           return;
         }
+        // AI が混み合っている (EXP-028): エラーではなくお知らせにし、文を入力欄に戻す
+        if (response.status === 503 && (body as { kind?: unknown } | null)?.kind === 'overloaded') {
+          setNotice(OVERLOADED_MESSAGE);
+          setMessages((prev) => prev.slice(0, -1));
+          setInput(text);
+          return;
+        }
         const reply = (body as { reply?: unknown } | null)?.reply;
         if (!response.ok || typeof reply !== 'string') {
           setChatProblem('返事を受け取れませんでした。もう一度送ってください');
@@ -299,6 +307,13 @@ function AppContent() {
         if (chatProjectId.current !== saveTo) return;
         if (response.status === 429) {
           setNotice(quotaNotice(response.status, body));
+          setMessages((prev) => prev.slice(0, -1));
+          setInput(text);
+          return;
+        }
+        // AI が混み合っている (EXP-028): エラーではなくお知らせにし、文を入力欄に戻す
+        if (response.status === 503 && (body as { kind?: unknown } | null)?.kind === 'overloaded') {
+          setNotice(OVERLOADED_MESSAGE);
           setMessages((prev) => prev.slice(0, -1));
           setInput(text);
           return;
@@ -412,6 +427,7 @@ function AppContent() {
 
   // 過去の傾向から最初の一言と候補を作る (EXP-027)。まだ本人が何も送っていないときだけ差し替える
   const loadSetupStart = async () => {
+    setPlanUpdated('過去の傾向を分析中…');
     try {
       const res = await fetch('/api/setup/start');
       if (!res.ok) return;
@@ -423,6 +439,8 @@ function AppContent() {
       setAnswerChoices((prev) => (picked.length > 0 && prev === DEFAULT_START_CHOICES ? picked : prev));
     } catch {
       // 既定の一言と候補のまま進める
+    } finally {
+      setPlanUpdated((prev) => (prev === '過去の傾向を分析中…' ? null : prev));
     }
   };
 

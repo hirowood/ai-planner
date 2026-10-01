@@ -19,7 +19,10 @@ export const geminiState: {
   lastConfig: Record<string, unknown> | null;
   // getGenerativeModel({ model }) で渡された最後のモデル名 (EXP-014)
   lastModel: string | null;
+  // failWith を投げる回数 (EXP-028)。null ならいつも投げる・数なら その回数だけ投げて後は成功
+  failTimes: number | null;
 } = {
+  failTimes: null,
   lastModel: null,
   failWith: null,
   reply: "fake reply",
@@ -67,7 +70,10 @@ export const generativeAiMock = {
           geminiState.lastPrompt = typeof prompt === "string" ? prompt : JSON.stringify(prompt);
           const requestConfig = configOf(prompt);
           if (requestConfig) geminiState.lastConfig = requestConfig;
-          if (geminiState.failWith) throw geminiState.failWith;
+          if (geminiState.failWith && (geminiState.failTimes === null || geminiState.failTimes > 0)) {
+            if (geminiState.failTimes !== null) geminiState.failTimes -= 1;
+            throw geminiState.failWith;
+          }
           if (geminiState.delayMs > 0) await wait(geminiState.delayMs);
           return { response: { text: () => geminiState.reply } };
         },
