@@ -15,6 +15,8 @@ import { parsePlanDraft, PLAN_FIELDS, PLAN_FIELD_LABEL, type PlanDraft } from ".
 import { greetingFor, startMessage, startChoices, type Choice } from "../lib/greeting";
 import { StartChoices } from "./components/StartChoices";
 import { AnswerChoices } from "./components/AnswerChoices";
+import { SmartPanel } from "./components/SmartPanel";
+import { EMPTY_SMART, isSmartReady, parseSmartDraft, todayJst, type SmartDraft } from "../lib/smart";
 import { parseChoices } from "../lib/coach-choices";
 
 // 最後に開いたプロジェクトの id だけを端末に置く (EXP-021)。読み書きできなければ黙って諦める
@@ -114,10 +116,18 @@ function AppContent() {
   const planStore = usePlanStore(workspace.selectedId);
   // 選んだプロジェクトの階層 (KGI → KPI → KDI → ToDo)
   const it = useItems(workspace.selectedId);
+  // 階層の KGI (固定) を Plan の要点に読み取り専用で出す (EXP-018)
+  const kgiItem = it.items.find((i) => i.level === 'kgi');
+  const kgiText = kgiItem
+    ? `${kgiItem.title}${kgiItem.target ? `（${kgiItem.target}）` : ''}${kgiItem.dueDate ? ` ${kgiItem.dueDate} まで` : ''}`
+    : undefined;
   // 返事で Plan の欄が変わったときの読み上げ (次に送ったときに消す)
   const [planUpdated, setPlanUpdated] = useState<string | null>(null);
   // AI の最後の質問への答えの候補 (EXP-023)。次に送るときに消す
   const [answerChoices, setAnswerChoices] = useState<string[]>([]);
+  // 会話で SMART を決めて新しいプロジェクトを作るモード (EXP-018)。null なら通常
+  const [setupDraft, setSetupDraft] = useState<SmartDraft | null>(null);
+  const [creatingProject, setCreatingProject] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   // 最後に開いたプロジェクト (EXP-021)。端末から読むので初回描画の後に入れる
   const [lastProjectId, setLastProjectId] = useState<string | null>(null);
@@ -235,6 +245,44 @@ function AppContent() {
     const returnFocus = () => {
       if (!dialogOpened) inputRef.current?.focus();
     };
+
+    // 作成モード (EXP-018): /api/setup に下書きと会話を送る (データベースには書かない)
+    if (setupDraft) {
+      try {
+        const response = await fetch('/api/setup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            draft: setupDraft,
+            history: messages.slice(-20).map((m) => ({ role: m.role, content: m.content })),
+            message: userMessage.content,
+          }),
+        });
+        const body: unknown = await response.json().catch(() => null);
+        if (response.status === 429) {
+          setNotice(quotaNotice(response.status, body));
+          setMessages((prev) => prev.slice(0, -1));
+          setInput(text);
+          return;
+        }
+        const reply = (body as { reply?: unknown } | null)?.reply;
+        if (!response.ok || typeof reply !== 'string') {
+          setChatProblem('返事を受け取れませんでした。もう一度送ってください');
+          return;
+        }
+        setMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
+        setAnswerChoices(parseChoices((body as { choices?: unknown }).choices));
+        const next = parseSmartDraft((body as { draft?: unknown }).draft);
+        if (next) setSetupDraft(next);
+      } catch (error: unknown) {
+        console.error("Setup Error:", error instanceof Error ? error.name : typeof error);
+        setChatProblem('返事を受け取れませんでした。もう一度送ってください');
+      } finally {
+        setIsLoading(false);
+        returnFocus();
+      }
+      return;
+    }
 
     // プロジェクトを選んでいる間は /api/coach だけを使う (EXP-016)。保存はサーバが行うので画面からは保存しない
     if (saveTo) {
@@ -359,6 +407,44 @@ function AppContent() {
   const choices = startChoices({ projectSelected: Boolean(workspace.selected), hasLastProject });
   const firstName = session?.user?.name?.trim().split(/\s+/)[0] || null;
 
+  // 作成モードをやめる (下書きは捨てる・データベースには何も書いていない)
+  const exitSetup = () => {
+    setSetupDraft(null);
+    setMessages([]);
+    setAnswerChoices([]);
+  };
+
+  // SMART の下書きからプロジェクトと固定の KGI を作り、そのプロジェクトを開く (EXP-018)
+  const createFromSetup = async () => {
+    if (!setupDraft || creatingProject) return;
+    setCreatingProject(true);
+    setChatProblem(null);
+    try {
+      const res = await fetch('/api/setup/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ draft: setupDraft }),
+      });
+      const body: unknown = await res.json().catch(() => null);
+      const project = (body as { project?: { id?: unknown; name?: unknown } } | null)?.project;
+      if (res.status !== 201 || typeof project?.id !== 'string') {
+        setChatProblem(res.status === 503 ? 'データベースが未設定です' : `プロジェクトを作れませんでした (${res.status})`);
+        return;
+      }
+      await workspace.loadProjects();
+      setSetupDraft(null);
+      setMessages([]);
+      setAnswerChoices([]);
+      workspace.select(project.id);
+      setPlanUpdated(`『${typeof project.name === 'string' ? project.name : ''}』を作りました。KGI は固定されました`);
+    } catch (error: unknown) {
+      console.error("Setup create Error:", error instanceof Error ? error.name : typeof error);
+      setChatProblem('プロジェクトを作れませんでした');
+    } finally {
+      setCreatingProject(false);
+    }
+  };
+
   const handleChoose = (choice: Choice) => {
     if (chatBusy) return;
     if (choice.message) {
@@ -369,8 +455,12 @@ function AppContent() {
     }
     switch (choice.id) {
       case 'new_project':
+        // 会話で SMART を決めて作る (EXP-018)。手で作る欄はプロジェクトのタブに残る
         setSideTab('projects');
-        setFocusProjectName(true);
+        setSetupDraft({ ...EMPTY_SMART });
+        setMessages([{ role: 'assistant', content: '新しい目標を一緒に決めましょう。まず、具体的に何をしたいですか？' }]);
+        setAnswerChoices([]);
+        setTimeout(() => inputRef.current?.focus(), 0);
         return;
       case 'calendar':
         setSideTab('calendar');
@@ -512,7 +602,7 @@ function AppContent() {
              <p className="text-xs text-gray-600"><span aria-hidden="true">💬</span> 『{workspace.selected.name}』の PDCA (記録を見て答えます)</p>
            )}
            {/* 会話がまだ無い時は、挨拶と選択肢を最初に出す (EXP-021・読み込み中は出さない) */}
-           {messages.length === 0 && !historyLoading && (
+           {!setupDraft && messages.length === 0 && !historyLoading && (
              <StartChoices
                message={startMessage({
                  greeting: greetingFor(new Date()),
@@ -553,7 +643,7 @@ function AppContent() {
              />
            )}
            {/* 会話がある時も、一番下に次にすることの選択肢を出す (送信中は押せない) */}
-           {messages.length > 0 && answerChoices.length === 0 && (
+           {!setupDraft && messages.length > 0 && answerChoices.length === 0 && (
              <StartChoices
                message="次にすることを選べます。"
                choices={choices}
@@ -605,6 +695,16 @@ function AppContent() {
 
       {/* 右サイド */}
       <div className="w-1/3 bg-gray-100 p-4 overflow-y-auto flex flex-col gap-6">
+        {setupDraft ? (
+          <SmartPanel
+            draft={setupDraft}
+            onChange={setSetupDraft}
+            ready={isSmartReady(setupDraft, todayJst())}
+            creating={creatingProject}
+            onCreate={() => void createFromSetup()}
+            onCancel={exitSetup}
+          />
+        ) : (<>
         <div role="tablist" aria-label="右の列" className="flex gap-2">
           {([['projects', '📁', 'プロジェクト'], ['calendar', '📅', '予定']] as const).map(([tab, icon, label]) => (
             <button
@@ -676,6 +776,7 @@ function AppContent() {
                         onChange={planStore.setPlanByUser}
                         cycleId={planStore.cycleId}
                         saveStatus={planStore.saveStatus}
+                        lockedKgi={kgiText}
                         onRegisterCalendar={() => void planStore.registerCalendar()}
                       />
                     </section>
@@ -715,6 +816,7 @@ function AppContent() {
         </div>
           </div>
         )}
+        </>)}
       </div>
     </div>
   );

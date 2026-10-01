@@ -279,12 +279,14 @@ export function usePlanStore(projectId: string | null): {
 }
 
 /** Plan の 6 欄だけ (会話・送信・反映は持たない)。値は plan・変更は onChange で親へ返す。 */
-export function PlanFields({ plan, onChange, cycleId, saveStatus, onRegisterCalendar }: {
+export function PlanFields({ plan, onChange, cycleId, saveStatus, onRegisterCalendar, lockedKgi }: {
   plan: PlanDraft;
   onChange(next: PlanDraft): void;
   cycleId: string | null;
   saveStatus: string;
   onRegisterCalendar?(): void;
+  // 階層に KGI があればその内容。目標 (KGI) を読み取り専用にする (EXP-018・KGI は固定 EXP-024)
+  lockedKgi?: string;
 }) {
   const baseId = useId();
   // ＋で足した行の最初の入力欄へ移す (足した直後の描画の後で focus する)
@@ -374,6 +376,14 @@ export function PlanFields({ plan, onChange, cycleId, saveStatus, onRegisterCale
           </button>
           <p id={`plan-${baseId}-kdi-hint`} className={hintClass}>行動は {KDI_MAX} 件まで</p>
         </fieldset>
+      );
+    }
+    if (field === 'kgi' && lockedKgi) {
+      return (
+        <div key={field} className={groupClass(field)}>
+          <p className="text-sm font-bold text-gray-900">{label} <span className="font-normal text-gray-700"><span aria-hidden="true">🔒 </span>階層の KGI (固定)</span></p>
+          <p className="text-gray-900 break-words">{lockedKgi}</p>
+        </div>
       );
     }
     return (

@@ -137,3 +137,8 @@ function cut(s: string, max: number): string {
 export function smartToKgi(d: SmartDraft): { title: string; target: string; dueDate: string } {
   return { title: cut(d.specific, KGI_MAX), target: cut(d.measurable, KGI_MAX), dueDate: d.timeBound.trim() };
 }
+
+/** 日本時間の今日 (YYYY-MM-DD)。期限が今日以降かを決めるのに使う (route からは export できないのでここに置く)。 */
+export function todayJst(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+}

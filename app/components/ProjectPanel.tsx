@@ -271,5 +271,5 @@ export function useProjectWorkspace(enabled: boolean) {
 
   const selected = projects.find((p) => p.id === selectedId) ?? null;
 
-  return { projects, selectedId, selected, notes, problem, done, select, createProject, createNote, deleteNote };
+  return { projects, selectedId, selected, notes, problem, done, select, createProject, createNote, deleteNote, loadProjects };
 }
