@@ -503,6 +503,7 @@ export function useItems(projectId: string | null): {
   update(id: string, patch: ItemPatch): Promise<void>;
   remove(id: string): Promise<void>;
   setLastParentId(id: string | null): void;
+  refresh(): Promise<void>;
 } {
   // どのプロジェクトの値かを一緒に持つ (切り替え直後に前のプロジェクトの値を見せない)
   const [data, setData] = useState<{ projectId: string; items: PlanItem[] } | null>(null);
@@ -594,9 +595,14 @@ export function useItems(projectId: string | null): {
     setLast({ projectId: pid, id });
   }, []);
 
+  // 外 (AI の会話) で項目が足されたときに読み直す (EXP-019)
+  const refresh = useCallback(async () => {
+    if (currentId.current) await reload(currentId.current);
+  }, [reload]);
+
   const items = projectId && data?.projectId === projectId ? data.items : [];
   const loading = projectId !== null && data?.projectId !== projectId;
   const lastParentId = projectId && last?.projectId === projectId ? last.id : null;
 
-  return { items, loading, problem, lastParentId, create, update, remove, setLastParentId };
+  return { items, loading, problem, lastParentId, create, update, remove, setLastParentId, refresh };
 }

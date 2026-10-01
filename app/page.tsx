@@ -11,6 +11,7 @@ import { ProjectPanel, useProjectWorkspace } from "./components/ProjectPanel";
 import { NotesPanel } from "./components/NotesPanel";
 import { PlanFields, usePlanStore } from "./components/PlanFields";
 import { PlanTree, useItems } from "./components/PlanTree";
+import { itemsAddedNotice } from "../lib/hierarchy-step";
 import { parsePlanDraft, PLAN_FIELDS, PLAN_FIELD_LABEL, type PlanDraft } from "../lib/pdca-plan";
 import { greetingFor, startMessage, startChoices, type Choice } from "../lib/greeting";
 import { StartChoices } from "./components/StartChoices";
@@ -334,6 +335,12 @@ function AppContent() {
         if (plan) {
           setPlanUpdated(planChangeNotice(planStore.plan, plan));
           planStore.setPlanFromServer(plan);
+        }
+        // AI が階層に足した項目 (EXP-019): 階層を読み直して知らせる
+        const added = itemsAddedNotice((body as { itemsAdded?: unknown }).itemsAdded);
+        if (added) {
+          setPlanUpdated(added);
+          void it.refresh();
         }
         if ((body as { timePrompted?: unknown }).timePrompted === true) {
           dialogOpened = true;

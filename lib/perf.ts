@@ -25,6 +25,7 @@ export type PerfLine = {
   context_notes?: number; // AI に渡したノートの件数 (上限で切った後・EXP-016)。中身は持たない
   context_cycles?: number; // AI に渡した過去の周の件数 (上限で切った後・EXP-016)。中身は持たない
   choices_count?: number; // 返した答えの候補の数 (EXP-023)。候補の中身は持たない
+  items_added?: number; // AI が階層に足した項目の数 (EXP-019)。項目の中身は持たない
 };
 
 // 真偽・数を出すための検査だけに使う。ここで見た本文はどこにも残さない
@@ -40,7 +41,8 @@ type KnownField =
   | "time_prompted"
   | "context_notes"
   | "context_cycles"
-  | "choices_count";
+  | "choices_count"
+  | "items_added";
 
 const round = (ms: number): number => Math.round(ms * 10) / 10;
 
@@ -61,6 +63,7 @@ export function formatPerfLine(line: PerfLine): string {
   if (line.context_notes !== undefined) out.context_notes = line.context_notes;
   if (line.context_cycles !== undefined) out.context_cycles = line.context_cycles;
   if (line.choices_count !== undefined) out.choices_count = line.choices_count;
+  if (line.items_added !== undefined) out.items_added = line.items_added;
   return `[perf] ${JSON.stringify(out)}`;
 }
 
@@ -93,6 +96,7 @@ export function startPerf(route: string, parts: PerfPart[] = []) {
       if (fields.context_notes !== undefined) known.context_notes = fields.context_notes;
       if (fields.context_cycles !== undefined) known.context_cycles = fields.context_cycles;
       if (fields.choices_count !== undefined) known.choices_count = fields.choices_count;
+      if (fields.items_added !== undefined) known.items_added = fields.items_added;
     },
 
     /** 外部呼び出し 1 回を計測して `part` に加算する。 */
