@@ -271,5 +271,10 @@ export function useProjectWorkspace(enabled: boolean) {
 
   const selected = projects.find((p) => p.id === selectedId) ?? null;
 
-  return { projects, selectedId, selected, notes, problem, done, select, createProject, createNote, deleteNote, loadProjects };
+  // 外 (AI の会話) でノートが足されたときに読み直す (EXP-032)
+  const reloadNotes = useCallback(async () => {
+    if (currentId.current) await loadNotes(currentId.current);
+  }, [loadNotes]);
+
+  return { projects, selectedId, selected, notes, problem, done, select, createProject, createNote, deleteNote, loadProjects, reloadNotes };
 }

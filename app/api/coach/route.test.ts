@@ -73,6 +73,7 @@ const ALLOWED = [
   "choices_count", // EXP-023 で許可した数 (候補の中身は持たない)
   "items_added", // EXP-019 で許可した数 (項目の中身は持たない)
   "context_days", // EXP-020 で許可した数 (記録の中身は持たない)
+  "hypothesis_saved", // EXP-032 で許可した真偽 (仮説の中身は持たない)
 ];
 const ROUTE = "api/coach";
 const EMAIL = "canary-user-c0a7@example.com";

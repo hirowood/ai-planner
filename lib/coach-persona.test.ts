@@ -49,7 +49,9 @@ describe("コーチ・メンターのプロンプト (EXP-022 L1)", () => {
     expect(p).toContain("期日と数値");
     expect(p).toContain("3 つに絞ります");
     // EXP-024 で KGI を固定したので、調整の型から「ゴール」を外した (EXP-022 の 4 つの型を置き換え)
-    expect(p).toContain("課題 / 行動 / そのまま続ける");
+    // 調整の型は本人の訂正で「KPI / 行動 / そのまま続ける」に (EXP-032 が EXP-022 の「課題 / 行動」を置き換え)
+    expect(p).toContain("KPI / 行動 / そのまま続ける");
+    expect(p).not.toContain("課題 / 行動 / そのまま続ける");
     expect(p).not.toContain("ゴール / 課題 / 行動");
   });
 });
