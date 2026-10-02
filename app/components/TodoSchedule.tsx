@@ -94,18 +94,32 @@ type ViewProps = {
 function Row({ item, event, busy, onSchedule }: { item: PlanItem; event: ItemEvent | undefined; busy: boolean; onSchedule: ViewProps['onSchedule'] }) {
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
+  // 押した後に入力欄が印に置き換わるので、フォーカスを印へ移す (a11y レビュー)
+  const askedRef = useRef(false);
+  const badgeRef = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    if (askedRef.current && event) {
+      badgeRef.current?.focus();
+      askedRef.current = false;
+    }
+  }, [event]);
   return (
     <li className="flex flex-col gap-2 p-2 rounded-lg border border-gray-200 bg-white">
       <span className="text-sm text-gray-900">
         <span className="text-gray-600">{item.dueDate}</span> {item.title}
       </span>
       {event ? (
-        <span className="text-sm text-green-800">{eventLabel(event)}</span>
+        <span ref={badgeRef} tabIndex={-1} className="text-sm text-green-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded">
+          {eventLabel(event)}
+        </span>
       ) : (
         <form
           className="flex flex-wrap items-center gap-2"
           onSubmit={(e) => {
             e.preventDefault();
+            // 入れている間も押したボタンのフォーカスは残す (aria-disabled)。ここで止める
+            if (busy) return;
+            askedRef.current = true;
             onSchedule(item, start, end);
           }}
         >
@@ -114,9 +128,10 @@ function Row({ item, event, busy, onSchedule }: { item: PlanItem; event: ItemEve
           <input type="time" aria-label={`『${item.title}』の終了`} value={end} onChange={(e) => setEnd(e.target.value)} className={inputClass} />
           <button
             type="submit"
-            disabled={busy}
+            aria-disabled={busy}
+            aria-busy={busy}
             aria-label={`『${item.title}』を予定に入れる`}
-            className={`${buttonClass} bg-blue-600 text-white border-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:border-gray-300 disabled:text-gray-600`}
+            className={`${buttonClass} ${busy ? 'bg-gray-300 border-gray-300 text-gray-600 cursor-wait' : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'}`}
           >
             {busy ? '入れています…' : '予定に入れる'}
           </button>

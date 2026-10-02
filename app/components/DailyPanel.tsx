@@ -206,7 +206,8 @@ export function DailyView({ today, items, logs, problem, saving, saved, onUpdate
           className="flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
-            if (!draft.mark) return;
+            // 押せない状態でもフォーカスは残す (aria-disabled)。ここで止める (a11y レビュー)
+            if (!draft.mark || saving) return;
             onSave({ mark: draft.mark, goods: draft.goods, tomorrow: draft.tomorrow });
           }}
         >
@@ -221,6 +222,7 @@ export function DailyView({ today, items, logs, problem, saving, saved, onUpdate
                     value={m}
                     checked={draft.mark === m}
                     onChange={() => setDraft((d) => ({ ...d, mark: m }))}
+                    required
                     className="sr-only"
                   />
                   {MARK_LABEL[m]}
@@ -254,12 +256,13 @@ export function DailyView({ today, items, logs, problem, saving, saved, onUpdate
           </label>
           <button
             type="submit"
-            disabled={!draft.mark || saving}
-            className={`${buttonClass} bg-blue-600 text-white border-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:border-gray-300 disabled:text-gray-600`}
+            aria-disabled={!draft.mark || saving}
+            aria-describedby={!draft.mark ? 'daily-save-hint' : undefined}
+            className={`${buttonClass} ${!draft.mark || saving ? 'bg-gray-300 border-gray-300 text-gray-600 cursor-not-allowed' : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'}`}
           >
             {saving ? '保存中…' : todayLog ? '今日の記録を上書きする' : '今日の記録を保存する'}
           </button>
-          {!draft.mark && <p className="text-sm text-gray-600">〇△× を選ぶと保存できます</p>}
+          {!draft.mark && <p id="daily-save-hint" className="text-sm text-gray-600">〇△× を選ぶと保存できます</p>}
         </form>
         <div role="status" className="flex flex-col gap-2">
           {problem && <p className="p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-sm">{problem}</p>}

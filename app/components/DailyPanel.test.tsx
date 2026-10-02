@@ -31,7 +31,11 @@ describe("「☀️ 今日」のタブ (EXP-020 L5)", () => {
     for (const i of [1, 2, 3]) expect(html).toContain(`aria-label="良かったこと ${i}"`);
     expect(html).toContain("明日はこうする");
     // 〇△× を選ぶまで保存できない
-    expect(html).toMatch(/<button type="submit" disabled=""/);
+    // 押せない理由は aria-disabled と説明で伝え、フォーカスは外さない (disabled にしない・a11y レビュー)
+    expect(html).toMatch(/<button type="submit" aria-disabled="true" aria-describedby="daily-save-hint"/);
+    expect(html).not.toMatch(/<button type="submit"[^>]*disabled=""/);
+    expect(html).toContain('id="daily-save-hint"');
+    expect((html.match(/type="radio"[^>]*required=""/g) ?? []).length).toBe(3);
   });
   it("今日の ToDo が無ければ案内と会話に送るボタン", () => {
     const html = render([todo(1, "2026-10-02")]);

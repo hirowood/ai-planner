@@ -105,7 +105,7 @@ function stepText(step: HierarchyStep | null): string {
     return `次に決める段: KGI (まだありません)。「新しいプロジェクト」から SMART で KGI を作ることを勧めてください。KGI はここでは作りません。"items" は [] にしてください。`;
   }
   const label = step.level === "todo" ? `今日 (${step.today}) の ToDo` : LEVEL_LABEL[step.level];
-  const max = step.level === "todo" ? TODO_PER_KDI - step.have : 3;
+  const max = step.level === "todo" ? TODO_PER_KDI - step.have : step.level === "kdi" ? KDI_TARGET - step.have : 3;
   const have =
     step.level === "todo"
       ? `

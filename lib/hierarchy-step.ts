@@ -6,7 +6,9 @@ import { STATUS_LABEL, parseItemInput, type ItemInput, type ItemLevel, type Plan
 
 export type HierarchyStep =
   | { level: "kgi" }
-  | { level: "kpi" | "kdi"; parent: PlanItem }
+  | { level: "kpi"; parent: PlanItem }
+  // KDI (安全レビュー W5): have = 今ある KDI の数 (棚上げは数えない)。足せるのは KDI_TARGET - have まで
+  | { level: "kdi"; parent: PlanItem; have: number }
   // 今日の ToDo (EXP-031): today = 期日にする日・have = その KDI の今日の ToDo の数
   | { level: "todo"; parent: PlanItem; today: string; have: number };
 
@@ -41,7 +43,7 @@ export function nextHierarchyStep(items: PlanItem[], today: string): HierarchySt
     // KDI の一番少ない KPI の下に足す (同じなら古い KPI)
     let parent = kpis[0];
     for (const kpi of kpis) if (activeKdis(kpi).length < activeKdis(parent).length) parent = kpi;
-    return { level: "kdi", parent };
+    return { level: "kdi", parent, have: kdis.length };
   }
   for (const kdi of kdis.slice(0, KDI_TARGET)) {
     const have = childrenOf(kdi).filter((i) => i.level === "todo" && i.dueDate === today).length;
@@ -92,7 +94,12 @@ export function itemsAddedNotice(x: unknown): string | null {
  * 今日の ToDo は期日が空なら今日にし、今日でないものは捨てる・数は TODO_PER_KDI - have まで (EXP-031)。 */
 export function parseProposedItems(x: unknown, step: HierarchyStep | null, projectId: string): ItemInput[] {
   if (!step || step.level === "kgi" || !Array.isArray(x)) return [];
-  const max = step.level === "todo" ? Math.max(0, TODO_PER_KDI - step.have) : PROPOSED_MAX;
+  const max =
+    step.level === "todo"
+      ? Math.max(0, TODO_PER_KDI - step.have)
+      : step.level === "kdi"
+        ? Math.max(0, KDI_TARGET - step.have)
+        : PROPOSED_MAX;
   const out: ItemInput[] = [];
   for (const raw of x) {
     if (out.length >= max) break;

@@ -37,20 +37,20 @@ describe("nextHierarchyStep (EXP-019 L1 → EXP-031 L1)", () => {
     const kpiA = item(2, "kpi", 1);
     const kpiB = item(3, "kpi", 1);
     // 並びを逆にしても古い方 (kpiA) を選ぶ
-    expect(nextHierarchyStep([kpiB, kgi, kpiA], TODAY)).toEqual({ level: "kdi", parent: kpiA });
+    expect(nextHierarchyStep([kpiB, kgi, kpiA], TODAY)).toEqual({ level: "kdi", parent: kpiA, have: 0 });
   });
   it("KDI 1 (KPI A の下) → KDI の少ない KPI B の下に kdi", () => {
     const kgi = item(1, "kgi", null);
     const kpiA = item(2, "kpi", 1);
     const kpiB = item(3, "kpi", 1);
     const kdi = item(4, "kdi", 2);
-    expect(nextHierarchyStep([kgi, kpiA, kpiB, kdi], TODAY)).toEqual({ level: "kdi", parent: kpiB });
+    expect(nextHierarchyStep([kgi, kpiA, kpiB, kdi], TODAY)).toEqual({ level: "kdi", parent: kpiB, have: 1 });
   });
   it("KDI 2 で ToDo があっても、3 つになるまで kdi (EXP-031)", () => {
     const kgi = item(1, "kgi", null);
     const kpi = item(2, "kpi", 1);
     const all = [kgi, kpi, item(3, "kdi", 2), item(4, "kdi", 2), item(5, "todo", 3, { dueDate: TODAY })];
-    expect(nextHierarchyStep(all, TODAY)).toEqual({ level: "kdi", parent: kpi });
+    expect(nextHierarchyStep(all, TODAY)).toEqual({ level: "kdi", parent: kpi, have: 2 });
   });
   it("棚上げの KDI は数えない (EXP-031)", () => {
     const kgi = item(1, "kgi", null);
@@ -120,24 +120,34 @@ describe("parseProposedItems (EXP-019 L2)", () => {
     ]);
   });
   it("3 件まで", () => {
-    const out = parseProposedItems(Array.from({ length: 5 }, (_, i) => ({ title: `t${i}` })), { level: "kdi", parent: kpi }, PID);
+    const out = parseProposedItems(Array.from({ length: 5 }, (_, i) => ({ title: `t${i}` })), { level: "kdi", parent: kpi, have: 0 }, PID);
     expect(out.map((o) => o.title)).toEqual(["t0", "t1", "t2"]);
   });
   it("空の題・201 字・実在しない日付・形の違うものは捨てる", () => {
     const out = parseProposedItems(
       [{ title: "" }, { title: "あ".repeat(201) }, { title: "ok", dueDate: "2026-02-30" }, "str", null],
-      { level: "kdi", parent: kpi },
+      { level: "kdi", parent: kpi, have: 0 },
       PID,
     );
     expect(out).toEqual([]);
   });
   it("200 字は通る", () => {
-    expect(parseProposedItems([{ title: "あ".repeat(200) }], { level: "kdi", parent: kpi }, PID)).toHaveLength(1);
+    expect(parseProposedItems([{ title: "あ".repeat(200) }], { level: "kdi", parent: kpi, have: 0 }, PID)).toHaveLength(1);
   });
   it("step が kgi / null・配列でない → []", () => {
     expect(parseProposedItems([{ title: "x" }], { level: "kgi" }, PID)).toEqual([]);
     expect(parseProposedItems([{ title: "x" }], null, PID)).toEqual([]);
-    expect(parseProposedItems({ title: "x" }, { level: "kdi", parent: kpi }, PID)).toEqual([]);
+    expect(parseProposedItems({ title: "x" }, { level: "kdi", parent: kpi, have: 0 }, PID)).toEqual([]);
+  });
+});
+
+describe("parseProposedItems — KDI は目安の 3 つまで (安全レビュー W5)", () => {
+  const kpi = item(2, "kpi", 1);
+  const many = [{ title: "a" }, { title: "b" }, { title: "c" }];
+  it("今 2 つなら 1 つまで・3 つなら 0・0 なら 3 つ", () => {
+    expect(parseProposedItems(many, { level: "kdi", parent: kpi, have: 2 }, PID).map((o) => o.title)).toEqual(["a"]);
+    expect(parseProposedItems(many, { level: "kdi", parent: kpi, have: 3 }, PID)).toEqual([]);
+    expect(parseProposedItems(many, { level: "kdi", parent: kpi, have: 0 }, PID)).toHaveLength(3);
   });
 });
 

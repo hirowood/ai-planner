@@ -1,6 +1,7 @@
 import NextAuth, { AuthOptions, Account, User } from "next-auth";
 import { JWT } from "next-auth/jwt";
 import GoogleProvider from "next-auth/providers/google";
+import { refreshErrorKind } from "../../../../lib/auth-log";
 
 // 必要なスコープを定数で管理
 const GOOGLE_SCOPES = [
@@ -61,7 +62,8 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
       refreshToken: refreshedTokens.refresh_token ?? token.refreshToken,
     };
   } catch (error) {
-    console.error("RefreshAccessTokenError", error);
+    // 名前と Google の error の種類 (例 invalid_grant) だけを出す。応答の本文や説明は出さない (安全レビュー W3)
+    console.error("RefreshAccessTokenError", refreshErrorKind(error));
     return {
       ...token,
       error: "RefreshAccessTokenError",

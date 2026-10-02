@@ -27,6 +27,15 @@ describe("「📅 予定に入れる ToDo」(EXP-030 L4)", () => {
     expect(html).toContain("📅 予定 09:00〜09:30");
     expect(html).not.toContain("『単語 2』を予定に入れる");
   });
+  it("予定の印はフォーカスを受けられる (入れた後にフォーカスを移す先)・ボタンは disabled にしない (a11y レビュー)", () => {
+    expect(html).toMatch(/<span tabindex="-1"[^>]*>📅 予定 09:00〜09:30<\/span>/);
+    expect(html).not.toMatch(/<button[^>]*disabled=""/);
+    const busy = renderToStaticMarkup(
+      <TodoScheduleView today={TODAY} items={items} events={[]} busyId={items[0].id} problem={null} done={null} onSchedule={noop} />,
+    );
+    expect(busy).toMatch(/<button type="submit" aria-disabled="true" aria-busy="true" aria-label="『単語 1』を予定に入れる"/);
+    expect(busy).not.toMatch(/<button[^>]*disabled=""/);
+  });
   it("7 日先までに ToDo が無ければ案内", () => {
     const empty = renderToStaticMarkup(
       <TodoScheduleView today={TODAY} items={[todo(1, "2026-12-01")]} events={[]} busyId={null} problem={null} done={null} onSchedule={noop} />,

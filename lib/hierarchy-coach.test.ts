@@ -124,6 +124,20 @@ describe("POST /api/coach — 階層の次の段 (EXP-019 L3)", () => {
     expect(inserts()[0].values).toContain("kdi");
   });
 
+  it("KDI が 2 つあれば、あと 1 つしか作らない (安全レビュー W5)", async () => {
+    db.state.items = [
+      row(KGI_ID, "kgi", null, KGI_CANARY),
+      row(KPI_ID, "kpi", KGI_ID, "模試 700"),
+      row("00000000-0000-4000-8000-000000000003", "kdi", KPI_ID, "単語"),
+      row("00000000-0000-4000-8000-000000000004", "kdi", KPI_ID, "文法"),
+    ];
+    geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [{ title: "x" }, { title: "y" }, { title: "z" }] });
+    const body = await (await POST(post())).json();
+    expect(body.itemsAdded).toEqual([{ level: "kdi", title: "x" }]);
+    expect(inserts()).toHaveLength(1);
+    expect(geminiState.lastPrompt ?? "").toContain('その KDI (行動の目標) を "items" に入れてください (最大 1 個)');
+  });
+
   it("items が無い・空なら作らない (items_added: 0・itemsAdded: [])", async () => {
     geminiState.reply = JSON.stringify({ reply: "どれにしますか？", plan: {}, choices: ["a"] });
     const body = await (await POST(post())).json();
