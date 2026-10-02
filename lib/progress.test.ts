@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { daysBetween, hypothesisNotice, parseHypothesis, progressText } from "./progress";
+import { daysBetween, hypothesisNotice, isDuplicateHypothesis, parseHypothesis, progressText } from "./progress";
 import type { PlanItem } from "./plan-items";
 
 const PID = "3f2b8c1e-9a4d-4e6f-8b2a-1c5d7e9f0a3b";
@@ -27,7 +27,7 @@ describe("progressText (EXP-032 L1)", () => {
       item(11, "todo", 3, { dueDate: "2026-10-01", status: "succeeded" }),
       item(12, "todo", 3, { dueDate: "2026-09-30", status: "failed" }),
       item(13, "todo", 3, { dueDate: TODAY, status: "todo" }),
-      // 8 日前は数えない
+      // 7 日前 (窓の外) は数えない
       item(14, "todo", 3, { dueDate: "2026-09-25", status: "failed" }),
       // 未来も数えない
       item(15, "todo", 3, { dueDate: "2026-10-03", status: "todo" }),
@@ -52,6 +52,16 @@ describe("progressText (EXP-032 L1)", () => {
     expect(text).not.toContain("棚上げした KDI");
     expect(text).not.toContain("</Records>");
   });
+  it("窓の境目: 6 日前は数え、7 日前は数えない (レビュー N4)", () => {
+    const all = [
+      item(1, "kgi", null),
+      item(2, "kpi", 1),
+      item(3, "kdi", 2),
+      item(10, "todo", 3, { dueDate: "2026-09-26", status: "done" }),
+      item(11, "todo", 3, { dueDate: "2026-09-25", status: "done" }),
+    ];
+    expect(progressText(all, TODAY)).toContain("最近 7 日の ToDo 1 つ (実行 1)");
+  });
   it("daysBetween", () => {
     expect(daysBetween("2026-10-02", "2026-10-09")).toBe(7);
     expect(daysBetween("2026-10-02", "2026-09-30")).toBe(-2);
@@ -67,6 +77,12 @@ describe("parseHypothesis・hypothesisNotice (EXP-032 L3・L4)", () => {
     expect(parseHypothesis("   ")).toBeNull();
     expect(parseHypothesis(["x"])).toBeNull();
     expect(parseHypothesis(undefined)).toBeNull();
+  });
+  it("同じ中身の仮説が最近のノートにあれば重複 (レビュー W1)", () => {
+    const notes = [{ kind: "仮説", body: "朝にやれば続くはず" }, { kind: "fact", body: "x" }];
+    expect(isDuplicateHypothesis(notes, "朝にやれば続くはず")).toBe(true);
+    expect(isDuplicateHypothesis(notes, "夜にやれば続くはず")).toBe(false);
+    expect(isDuplicateHypothesis([{ kind: "thought", body: "朝にやれば続くはず" }], "朝にやれば続くはず")).toBe(false);
   });
   it("お知らせは true のときだけ", () => {
     expect(hypothesisNotice(true)).toBe("仮説をノートに残しました");

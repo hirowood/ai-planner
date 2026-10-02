@@ -5,6 +5,7 @@ import { neutralize } from "./coach-context";
 import { STATUS_LABEL, STATUS_ORDER, type ItemStatus, type PlanItem } from "./plan-items";
 
 export const PROGRESS_DAYS = 7;
+export const HYPOTHESIS_KIND = "仮説";
 const TITLE_CHARS = 60;
 const YMD_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -75,9 +76,13 @@ export function parseHypothesis(x: unknown): string | null {
   return n >= 1 && n <= HYPOTHESIS_MAX ? t : null;
 }
 
+/** 最近のノートにもう同じ中身の「仮説」があるか (レビュー W1: 同じ仮説を何度も残さない)。 */
+export function isDuplicateHypothesis(notes: { kind: string; body: string }[], body: string): boolean {
+  return notes.some((n) => n.kind === HYPOTHESIS_KIND && n.body.trim() === body);
+}
+
 /** 画面のお知らせ (EXP-032)。 */
 export function hypothesisNotice(saved: unknown): string | null {
   return saved === true ? "仮説をノートに残しました" : null;
 }
 
-export const HYPOTHESIS_KIND = "仮説";

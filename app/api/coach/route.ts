@@ -43,7 +43,7 @@ import {
 } from "../../../lib/repo";
 import { LEVEL_LABEL, type ItemLevel, type PlanItem } from "../../../lib/plan-items";
 import { dailyText } from "../../../lib/daily";
-import { HYPOTHESIS_KIND, parseHypothesis, progressText } from "../../../lib/progress";
+import { HYPOTHESIS_KIND, isDuplicateHypothesis, parseHypothesis, progressText } from "../../../lib/progress";
 import {
   KDI_TARGET,
   TODO_PER_KDI,
@@ -315,8 +315,10 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
       model: GEMINI_MODEL,
       generationConfig: { responseMimeType: "application/json", maxOutputTokens: 1024 },
     });
-    const step = nextHierarchyStep(loaded.items, todayJst());
-    const prompt = buildPrompt(records, history, message, loaded.items, step, dailyText(loaded.daily), progressText(loaded.items, todayJst()));
+    // 「今日」は 1 回だけ求める (0 時をまたいでも段と進み具合が同じ日を見る・レビュー N1)
+    const today = todayJst();
+    const step = nextHierarchyStep(loaded.items, today);
+    const prompt = buildPrompt(records, history, message, loaded.items, step, dailyText(loaded.daily), progressText(loaded.items, today));
     const result = await perf.time("gemini_ms", () => withGeminiRetry(() => model.generateContent(prompt)));
 
     const out = parseModelOutput(result.response.text());
@@ -342,15 +344,6 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
     }
     perf.set({ items_added: itemsAdded.length });
 
-    // --- 同意した仮説をノート (種類「仮説」) に残す (EXP-032) ---
-    const hypothesis = out ? parseHypothesis(out.hypothesis) : null;
-    let hypothesisSaved = false;
-    if (hypothesis) {
-      const note = await perf.time("db_ms", () => createNote(sql, owner, { projectId, kind: HYPOTHESIS_KIND, body: hypothesis }));
-      hypothesisSaved = note !== null;
-    }
-    perf.set({ hypothesis_saved: hypothesisSaved });
-
     // --- 保存する (Plan と会話 2 件) ---
     const saved = await perf.time("db_ms", async () => {
       const c = await saveCycle(sql, owner, {
@@ -370,6 +363,17 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
       return c !== null && n !== null;
     });
     if (!saved) return NextResponse.json({ error: "プロジェクトが見つかりません" }, { status: 404 });
+
+    // --- 同意した仮説をノート (種類「仮説」) に残す (EXP-032) ---
+    // 会話を保存できた後にだけ残す (失敗して送り直しても 2 つにならない・レビュー W2)。
+    // 最近のノートに同じ仮説があれば残さない (AI が同じ仮説を返し直しても増やさない・レビュー W1)
+    const hypothesis = out ? parseHypothesis(out.hypothesis) : null;
+    let hypothesisSaved = false;
+    if (hypothesis && !isDuplicateHypothesis(loaded.notes, hypothesis)) {
+      const note = await perf.time("db_ms", () => createNote(sql, owner, { projectId, kind: HYPOTHESIS_KIND, body: hypothesis }));
+      hypothesisSaved = note !== null;
+    }
+    perf.set({ hypothesis_saved: hypothesisSaved });
 
     return NextResponse.json({ reply, plan: merged, next: nextField(merged), timePrompted, choices, itemsAdded, hypothesisSaved }, { status: 200 });
   } catch (error: unknown) {

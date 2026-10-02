@@ -352,7 +352,7 @@ function AppContent() {
         // AI と立てた仮説をノートに残した (EXP-032)
         const hyp = hypothesisNotice((body as { hypothesisSaved?: unknown }).hypothesisSaved);
         if (hyp) {
-          setPlanUpdated((prev) => (added ? `${prev ?? ''}・${hyp}` : hyp));
+          setPlanUpdated(added ? `${added}・${hyp}` : hyp);
           void workspace.reloadNotes();
         }
         if ((body as { timePrompted?: unknown }).timePrompted === true) {
