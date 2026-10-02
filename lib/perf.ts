@@ -29,6 +29,7 @@ export type PerfLine = {
   context_days?: number; // AI に渡した 1 日の記録の件数 (EXP-020)。中身は持たない
   hypothesis_saved?: boolean; // AI と立てた仮説をノートに残したか (EXP-032)。中身は持たない
   judgement_applied?: boolean; // AI と決めた判定を ToDo に入れたか (EXP-034)。中身は持たない
+  pick_added?: boolean; // 候補のボタンで選んだ項目を足したか (EXP-035)。中身は持たない
 };
 
 // 真偽・数を出すための検査だけに使う。ここで見た本文はどこにも残さない
@@ -48,7 +49,8 @@ type KnownField =
   | "items_added"
   | "context_days"
   | "hypothesis_saved"
-  | "judgement_applied";
+  | "judgement_applied"
+  | "pick_added";
 
 const round = (ms: number): number => Math.round(ms * 10) / 10;
 
@@ -73,6 +75,7 @@ export function formatPerfLine(line: PerfLine): string {
   if (line.context_days !== undefined) out.context_days = line.context_days;
   if (line.hypothesis_saved !== undefined) out.hypothesis_saved = line.hypothesis_saved;
   if (line.judgement_applied !== undefined) out.judgement_applied = line.judgement_applied;
+  if (line.pick_added !== undefined) out.pick_added = line.pick_added;
   return `[perf] ${JSON.stringify(out)}`;
 }
 
@@ -109,6 +112,7 @@ export function startPerf(route: string, parts: PerfPart[] = []) {
       if (fields.context_days !== undefined) known.context_days = fields.context_days;
       if (fields.hypothesis_saved !== undefined) known.hypothesis_saved = fields.hypothesis_saved;
       if (fields.judgement_applied !== undefined) known.judgement_applied = fields.judgement_applied;
+      if (fields.pick_added !== undefined) known.pick_added = fields.pick_added;
     },
 
     /** 外部呼び出し 1 回を計測して `part` に加算する。 */

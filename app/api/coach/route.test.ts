@@ -75,6 +75,7 @@ const ALLOWED = [
   "context_days", // EXP-020 で許可した数 (記録の中身は持たない)
   "hypothesis_saved", // EXP-032 で許可した真偽 (仮説の中身は持たない)
   "judgement_applied", // EXP-034 で許可した真偽 (判定の中身は持たない)
+  "pick_added", // EXP-035 で許可した真偽 (項目の中身は持たない)
 ];
 const ROUTE = "api/coach";
 const EMAIL = "canary-user-c0a7@example.com";

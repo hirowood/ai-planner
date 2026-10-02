@@ -68,10 +68,10 @@ const row = (id: string, level: string, parent: string | null, title: string) =>
   id, project_id: PID, parent_id: parent, level, title, target: "", due_date: null, status: "todo", created_at: T, updated_at: T,
 });
 
-function post(message = "それにします") {
+function post(message = "それにします", extra: Record<string, unknown> = {}) {
   return new Request("http://l/api/coach", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ projectId: PID, message }),
+    body: JSON.stringify({ projectId: PID, message, ...extra }),
   });
 }
 const inserts = () => db.state.calls.filter((c) => /insert into plan_items/.test(db.text(c)));
@@ -99,7 +99,9 @@ describe("POST /api/coach — 階層の次の段 (EXP-019 L3)", () => {
     expect(p).toContain(`- KGI: ${KGI_CANARY}`);
     expect(p).toContain("次に決める段: KPI (途中の指標) (親: KGI (ゴール)「" + KGI_CANARY + "」の下)");
     expect(p).toContain("期限までに KGI を達成できているかを途中で測る数");
-    expect(p).toContain("ユーザーが候補を選んだ・同意した・自分で言ったときだけ");
+    // EXP-035: 候補は candidates・確認しない (EXP-019 の「同意したときだけ」を置き換え)
+    expect(p).toContain('"candidates" に {"title", "target" (判定基準)} で入れてください');
+    expect(p).not.toContain("ユーザーが候補を選んだ・同意した・自分で言ったときだけ");
     // 階層の要約は <Records> の中
     expect(p.indexOf("#### 階層")).toBeLessThan(p.indexOf("</Records>"));
   });
@@ -144,6 +146,11 @@ describe("POST /api/coach — 階層の次の段 (EXP-019 L3)", () => {
       row(KPI_ID, "kpi", KGI_ID, "模試 700"),
       row("00000000-0000-4000-8000-000000000003", "kdi", KPI_ID, "単語"),
       row("00000000-0000-4000-8000-000000000004", "kdi", KPI_ID, "文法"),
+      // EXP-035: 今日の ToDo がそろってから KDI を足す段になる
+      ...[3, 4].flatMap((k) => [1, 2, 3].map((n) => ({
+        ...row(`00000000-0000-4000-8000-0000000001${k}${n}`, "todo", `00000000-0000-4000-8000-00000000000${k}`, `t${k}${n}`),
+        due_date: todayJst(),
+      }))),
     ];
     geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [{ title: "x" }, { title: "y" }, { title: "z" }] });
     const body = await (await POST(post())).json();
@@ -304,6 +311,74 @@ describe("POST /api/coach — 階層の次の段 (EXP-019 L3)", () => {
       expect(body.judged).toBeNull();
       expect(db.state.calls.filter((c) => /update plan_items set status/.test(db.text(c)))).toHaveLength(0);
       expect(geminiState.lastPrompt ?? "").not.toContain("### 判定を待っている ToDo");
+    });
+  });
+
+  describe("候補をボタン 1 回で足す (EXP-035 L3・L4)", () => {
+    const PICK = "canary-pick-模試の過去問 1 回-7e2b";
+
+    it("pick は AI に聞く前に今の段 (KGI の下の KPI) として足し、確認しない指示が入る", async () => {
+      geminiState.reply = JSON.stringify({ reply: "次は KDI ですね", plan: {}, choices: [], items: [] });
+      const body = await (await POST(post(`『${PICK}』にします`, { pick: { title: PICK, target: "700 点" } }))).json();
+      expect(body.itemsAdded).toEqual([{ level: "kpi", title: PICK }]);
+      const ins = inserts();
+      expect(ins).toHaveLength(1);
+      expect(ins[0].values).toEqual(expect.arrayContaining([KGI_ID, "kpi", PICK, "700 点", EMAIL]));
+      // AI に聞く前に足した: プロンプトに足した項目と「確認の質問はせず」
+      const p = geminiState.lastPrompt ?? "";
+      expect(p).toContain("### いまユーザーが選んで足した項目 (EXP-035)");
+      expect(p).toContain(`KPI (途中の指標)『${PICK}』をサーバが階層に足しました。確認の質問はせず、次へ進んでください。`);
+      // 足した後の段で決め直す (KPI ができたので次は KDI)
+      expect(p).toContain("次に決める段: KDI (行動の目標)");
+      expect(perf.parsed().find((l) => l.route === "api/coach")).toMatchObject({ pick_added: true, items_added: 1 });
+      const logs = perf.all.join(" ");
+      for (const c of [EMAIL, PICK]) expect(logs).not.toContain(c);
+    });
+
+    it("プロンプトに「確認しない」「根拠を添えて自分から提案」「伸長」「改善」", async () => {
+      geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [] });
+      await POST(post());
+      const p = geminiState.lastPrompt ?? "";
+      expect(p).toContain("「よろしいですか」「登録しますか」と確認しないでください");
+      expect(p).toContain("根拠を添えて、自分から提案してください");
+      expect(p).toContain("**伸長**");
+      expect(p).toContain("**改善**");
+    });
+
+    it("AI の candidates は次の段で検査されて返る (足した後の段)", async () => {
+      geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [], candidates: [{ title: "模試を 1 回", target: "700 点" }, { title: "" }] });
+      const body = await (await POST(post())).json();
+      expect(body.candidates).toEqual([{ title: "模試を 1 回", target: "700 点" }]);
+    });
+
+    it.each([
+      ["題が空", { title: "" }],
+      ["201 字", { title: "あ".repeat(201) }],
+    ])("不正な pick (%s) は足さない", async (_l, pick) => {
+      geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [] });
+      const body = await (await POST(post("x", { pick }))).json();
+      expect(body.itemsAdded).toEqual([]);
+      expect(inserts()).toHaveLength(0);
+      expect(perf.parsed().find((l) => l.route === "api/coach")).toMatchObject({ pick_added: false });
+    });
+
+    it("pick が配列や文字列なら 400", async () => {
+      expect((await POST(post("x", { pick: ["a"] }))).status).toBe(400);
+      expect((await POST(post("x", { pick: "a" }))).status).toBe(400);
+    });
+
+    it("判定を待っている間は pick を足さず、候補も返さない", async () => {
+      db.state.items = [
+        row(KGI_ID, "kgi", null, KGI_CANARY),
+        row(KPI_ID, "kpi", KGI_ID, "模試"),
+        row("00000000-0000-4000-8000-000000000003", "kdi", KPI_ID, "単語"),
+        { ...row("00000000-0000-4000-8000-000000000010", "todo", "00000000-0000-4000-8000-000000000003", "完了した"), due_date: todayJst(), status: "done" },
+      ];
+      geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [], candidates: [{ title: "x" }] });
+      const body = await (await POST(post("x", { pick: { title: "足さない" } }))).json();
+      expect(body.itemsAdded).toEqual([]);
+      expect(body.candidates).toEqual([]);
+      expect(inserts()).toHaveLength(0);
     });
   });
 
