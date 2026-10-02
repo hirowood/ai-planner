@@ -24,6 +24,7 @@ import { greetingFor, startMessage, startChoices, type Choice } from "../lib/gre
 import { StartChoices } from "./components/StartChoices";
 import { AnswerChoices } from "./components/AnswerChoices";
 import { SmartPanel } from "./components/SmartPanel";
+import { parseKpiDrafts, setupKpisReady, type KpiDraft } from "../lib/setup-kpi";
 import { QuickReplies } from "./components/QuickReplies";
 import { buildQuickReplies } from "../lib/quick-replies";
 import { DEFAULT_START_CHOICES, OPENING, afterCreateMessage } from "../lib/setup-start";
@@ -147,6 +148,8 @@ function AppContent() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   // 会話で SMART を決めて新しいプロジェクトを作るモード (EXP-018)。null なら通常
   const [setupDraft, setSetupDraft] = useState<SmartDraft | null>(null);
+  // 作るときの KPI (仮置き・EXP-037)
+  const [setupKpis, setSetupKpis] = useState<KpiDraft[]>([]);
   const [creatingProject, setCreatingProject] = useState(false);
   // 作った直後に会話へ出す一言 (EXP-029)。そのプロジェクトの会話を読み込んだ後に足す (effect から最新を読むため ref)
   const pendingAfterCreate = useRef<string | null>(null);
@@ -279,6 +282,7 @@ function AppContent() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             draft: setupDraft,
+            kpis: setupKpis.filter((k) => k.title.trim() !== ''),
             history: messages.slice(-20).map((m) => ({ role: m.role, content: m.content })),
             message: userMessage.content,
           }),
@@ -306,6 +310,8 @@ function AppContent() {
         setAnswerChoices(parseChoices((body as { choices?: unknown }).choices));
         const next = parseSmartDraft((body as { draft?: unknown }).draft);
         if (next) setSetupDraft(next);
+        const nextKpis = parseKpiDrafts((body as { kpis?: unknown }).kpis, next?.timeBound ?? '', todayJst());
+        if (nextKpis.length > 0) setSetupKpis(nextKpis);
       } catch (error: unknown) {
         console.error("Setup Error:", error instanceof Error ? error.name : typeof error);
         setChatProblem('返事を受け取れませんでした。もう一度送ってください');
@@ -487,6 +493,7 @@ function AppContent() {
   // 作成モードをやめる (下書きは捨てる・データベースには何も書いていない)
   const exitSetup = () => {
     setSetupDraft(null);
+    setSetupKpis([]);
     setMessages([]);
     setAnswerChoices([]);
   };
@@ -500,7 +507,7 @@ function AppContent() {
       const res = await fetch('/api/setup/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draft: setupDraft }),
+        body: JSON.stringify({ draft: setupDraft, kpis: setupKpis.filter((k) => k.title.trim() !== '') }),
       });
       const body: unknown = await res.json().catch(() => null);
       const project = (body as { project?: { id?: unknown; name?: unknown } } | null)?.project;
@@ -510,11 +517,12 @@ function AppContent() {
       }
       await workspace.loadProjects();
       setSetupDraft(null);
+      setSetupKpis([]);
       setAnswerChoices([]);
       workspace.select(project.id);
       // 作った直後は KPI へ案内する (EXP-029)。会話の読み込みが空でもこの一言が残るよう、選んだ後に置く
       pendingAfterCreate.current = afterCreateMessage(typeof project.name === 'string' ? project.name : '');
-      setPlanUpdated(`『${typeof project.name === 'string' ? project.name : ''}』を作りました。KGI は固定されました`);
+      setPlanUpdated(`『${typeof project.name === 'string' ? project.name : ''}』を作りました。KGI は固定・KPI は仮置きです`);
     } catch (error: unknown) {
       console.error("Setup create Error:", error instanceof Error ? error.name : typeof error);
       setChatProblem('プロジェクトを作れませんでした');
@@ -536,6 +544,7 @@ function AppContent() {
         // 会話で SMART を決めて作る (EXP-018)。手で作る欄はプロジェクトのタブに残る
         setSideTab('projects');
         setSetupDraft({ ...EMPTY_SMART });
+        setSetupKpis([]);
         // まず既定の一言と候補を出し、過去の傾向から作った一言と候補が届いたら差し替える (EXP-027)
         setMessages([{ role: 'assistant', content: OPENING }]);
         setAnswerChoices(DEFAULT_START_CHOICES);
@@ -798,7 +807,9 @@ function AppContent() {
           <SmartPanel
             draft={setupDraft}
             onChange={setSetupDraft}
-            ready={isSmartReady(setupDraft, todayJst())}
+            ready={isSmartReady(setupDraft, todayJst()) && setupKpisReady(setupKpis, setupDraft.timeBound)}
+            kpis={setupKpis}
+            onKpisChange={setSetupKpis}
             creating={creatingProject}
             onCreate={() => void createFromSetup()}
             onCancel={exitSetup}

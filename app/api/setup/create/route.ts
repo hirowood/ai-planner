@@ -6,6 +6,7 @@ import { DbNotConfigured, getSql } from "../../../../lib/db";
 import { EMPTY_PLAN } from "../../../../lib/pdca-plan";
 import { isSmartReady, parseSmartDraft, smartToKgi, todayJst } from "../../../../lib/smart";
 import { createItem, createProject, saveCycle } from "../../../../lib/repo";
+import { parseKpiDrafts } from "../../../../lib/setup-kpi";
 
 // --- SMART の下書きからプロジェクトを作る (EXP-018) ---
 // プロジェクト・階層の KGI (固定・EXP-024)・cycle (Plan の目的と KGI) をまとめて作る。すべて owner で。
@@ -41,6 +42,12 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
   if (!draft || !isSmartReady(draft, todayJst())) {
     return NextResponse.json({ error: "SMART のすべての欄を埋め、期限を今日以降にしてください" }, { status: 400 });
   }
+  // KPI (仮置き) が 1 つ以上・KGI の期限まで (EXP-037)。届いた数と通った数が違えば断る
+  const rawKpis = (raw as { kpis?: unknown } | null)?.kpis;
+  const kpis = parseKpiDrafts(rawKpis, draft.timeBound, todayJst());
+  if (kpis.length === 0 || !Array.isArray(rawKpis) || rawKpis.length !== kpis.length) {
+    return NextResponse.json({ error: "KPI を 1〜3 個 (期日は KGI の期限まで) 決めてください" }, { status: 400 });
+  }
 
   try {
     const sql = getSql();
@@ -53,19 +60,35 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
         ...smartToKgi(draft),
         status: "todo",
       });
+      // KGI の下に KPI (仮置き) を作る (EXP-037)
+      const kpiItems = [];
+      if (kgi && typeof kgi === "object") {
+        for (const k of kpis) {
+          const item = await createItem(sql, owner, {
+            projectId: project.id,
+            parentId: kgi.id,
+            level: "kpi",
+            title: k.title,
+            target: k.target,
+            dueDate: k.dueDate,
+            status: "todo",
+          });
+          if (item && typeof item === "object") kpiItems.push(item);
+        }
+      }
       const cycle = await saveCycle(sql, owner, {
         projectId: project.id,
         plan: { ...EMPTY_PLAN, kpis: [], kdis: [], purpose: draft.relevant, kgi: `${draft.specific}（${draft.measurable}）${draft.timeBound} まで` },
         phase: "plan",
       });
-      return { project, kgi, cycle };
+      return { project, kgi, cycle, kpiItems };
     });
     const kgiOk = created.kgi !== null && typeof created.kgi === "object";
-    perf.set({ row_count: kgiOk ? 3 : 1 });
+    perf.set({ row_count: kgiOk ? 3 + created.kpiItems.length : 1 });
     if (!kgiOk || !created.cycle) {
       return NextResponse.json({ error: "KGI を作れませんでした" }, { status: 500 });
     }
-    return NextResponse.json({ project: created.project, kgi: created.kgi }, { status: 201 });
+    return NextResponse.json({ project: created.project, kgi: created.kgi, kpis: created.kpiItems }, { status: 201 });
   } catch (error: unknown) {
     if (error instanceof DbNotConfigured) {
       return NextResponse.json({ error: "データベースが未設定です" }, { status: 503 });
