@@ -95,3 +95,27 @@ create table if not exists item_events (
   end_time text not null default '',
   created_at timestamptz not null default now()
 );
+
+-- EXP-039: ToDo の時刻 (アプリの中の時間割)。1 つの ToDo に 1 つ。"HH:MM"
+create table if not exists item_slots (
+  item_id uuid primary key references plan_items (id) on delete cascade,
+  owner text not null,
+  start_time text not null,
+  end_time text not null,
+  updated_at timestamptz not null default now()
+);
+
+-- EXP-040: 日常のタスク (プロジェクトに属さない・持ち主ごと)
+create table if not exists daily_tasks (
+  id uuid primary key default gen_random_uuid(),
+  owner text not null,
+  day date not null,
+  title text not null,
+  start_time text not null default '',
+  end_time text not null default '',
+  status text not null default 'todo',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists daily_tasks_owner_day_idx on daily_tasks (owner, day);
