@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "../auth/[...nextauth]/route";
 import { startPerf } from "../../../lib/perf";
 import { quotaBody, quotaKind } from "../../../lib/quota";
-import { GEMINI_MODEL } from "../../../lib/model";
+import { GEMINI_MODEL, modelFor } from "../../../lib/model";
 import { DbNotConfigured, getSql } from "../../../lib/db";
 import { isUuid } from "../../../lib/projects";
 import {
@@ -18,7 +18,9 @@ import {
 } from "../../../lib/pdca-plan";
 import { TIME_MARKER, hasTimeMarker, stripTimeMarker } from "../../../lib/time-input";
 import { parseChoices } from "../../../lib/coach-choices";
-import { OVERLOADED_MESSAGE, isOverloaded, withGeminiRetry } from "../../../lib/gemini-retry";
+import { OVERLOADED_MESSAGE, isOverloaded, withGeminiRetry, withModelFallback } from "../../../lib/gemini-retry";
+import { THREAD_ROLE, isCoachThread, threadAllowsChange, threadStep, type CoachThread } from "../../../lib/threads";
+import { isRepeatQuestion } from "../../../lib/question-repeat";
 import {
   NOTES_LIMIT,
   PAST_CYCLES_LIMIT,
@@ -57,7 +59,6 @@ import {
   KDI_TARGET,
   TODO_PER_KDI,
   hierarchyText,
-  nextHierarchyStep,
   parseCandidates,
   slotsByTitle,
   parseProposedItems,
@@ -78,7 +79,7 @@ type Perf = ReturnType<typeof startPerf>;
 type Message = { role: "user" | "assistant"; content: string };
 
 const ROUTE = "api/coach";
-const THREAD = "chat" as const;
+// 会話は目的ごと (EXP-043)。本文の thread (無ければ chat = 壁打ち・相談)
 const MAX_MESSAGE_LENGTH = 2000;
 const HISTORY_TURNS = 20; // プロンプトに入れる直近の会話の件数
 const FALLBACK_REPLY = "すみません、うまく受け取れませんでした。もう一度教えてください。";
@@ -161,6 +162,7 @@ function buildPrompt(
   picked = "",
   refsText = "(まだ無し)",
   todayTasks = "(まだ無し)",
+  thread: CoachThread = "chat",
 ): string {
   const next = nextField(records.plan);
   const order = PLAN_FIELDS.map((f, i) => `${i + 1}. ${f} (${PLAN_FIELD_LABEL[f]})`).join("\n");
@@ -175,7 +177,15 @@ function buildPrompt(
 - 答えを押し付けず、問いで気づかせてください。要所では具体的な助言をしてください。
 - できたことは、記録から具体的に認めてください。
 - 温かく丁寧に、短く話してください (返答は 300 字程度まで)。
-- 返答は毎回この順にしてください: ①受け止め (一言) ②記録に基づく所見か助言 (根拠の記録を添える) ③次の一歩の問い 1 つ。
+- 返答は毎回この順にしてください: ①受け止め (ユーザーの言葉を短く言い換える) ②記録に基づく所見 (根拠の記録を 1 つ添える) ③提案を 1 つ (候補はボタンに) か、質問を 1 つ。
+
+### この会話の役割 (EXP-043)
+${THREAD_ROLE[thread]}
+
+### 会話の質 (EXP-044)
+- **直前の自分の質問と同じ質問をしないでください。** ユーザーが答えたら、確かめ直さずに次へ進んでください。
+- 具体的に話してください: 数・期日・時刻・回数で言ってください。記録に無い数字は作らないでください。
+- 一般論ではなく、このユーザーの記録 (進み具合・前の日の記録・仮説) に結びつけてください。
 
 ### 鬼速PDCA の考え方で導く
 - 目標は期日と数値で表します (KGI)。漠然とした言葉には、数と期日の入った言い直しを 2〜3 個示して選んでもらってください。
@@ -217,7 +227,7 @@ ${picked}${pendingText(pending)}### 判定 (Check) と調整 (Action) を一緒�
 
 ### 階層の次に決める段 (EXP-019)
 目標は KGI → KPI (途中の指標) → KDI (行動の目標) → ToDo の順に 1 段ずつ具体にします。KGI は固定です。
-${stepText(step)}
+${thread === "chat" || thread === "kgi" ? "この会話では階層に足しません (\"items\" と \"candidates\" は [])。決める段の話になったら、そのチャットを案内してください。" : stepText(step)}
 
 ### Plan の欄の順
 ${order}
@@ -316,6 +326,8 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
   if (charLength(message) > MAX_MESSAGE_LENGTH) return badRequest("メッセージは2000文字以内にしてください");
   if (body.via !== undefined && typeof body.via !== "string") return badRequest("via が正しくありません");
   perf.set({ time_dialog_used: body.via === "time_dialog" });
+  const thread: CoachThread = body.thread === undefined ? "chat" : isCoachThread(body.thread) ? body.thread : ("bad" as CoachThread);
+  if (!isCoachThread(thread)) return badRequest("thread が正しくありません");
   // 候補のボタンで選んだ項目 (EXP-035)。形だけここで見て、中身は段の検査 (parseProposedItems) で見る
   if (body.pick !== undefined && (typeof body.pick !== "object" || body.pick === null || Array.isArray(body.pick))) {
     return badRequest("pick が正しくありません");
@@ -331,7 +343,7 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
       if (!project) return null;
       const cycle = await getLatestCycle(sql, owner, projectId);
       const notes = await listNotes(sql, owner, projectId, NOTES_LIMIT);
-      const history = await listMessages(sql, owner, projectId, THREAD);
+      const history = await listMessages(sql, owner, projectId, thread);
       const past = await listPastCycles(sql, owner, projectId, cycle ? cycle.id : null, PAST_CYCLES_LIMIT);
       const items = await listItems(sql, owner, projectId);
       const daily = await listDailyLogs(sql, owner, projectId);
@@ -362,14 +374,10 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
     });
 
     // --- AI に聞く ---
-    const model = genAI.getGenerativeModel({
-      model: GEMINI_MODEL,
-      generationConfig: { responseMimeType: "application/json", maxOutputTokens: 1024 },
-    });
     // 「今日」は 1 回だけ求める (0 時をまたいでも段と進み具合が同じ日を見る・レビュー N1)
     const today = todayJst();
-    // 「✓ 完了」した ToDo があれば、まず判定から (EXP-034)
-    const pending = pendingJudgement(loaded.items, today);
+    // 「✓ 完了」した ToDo があれば、まず判定から (EXP-034)。判定は ✅ ToDo の会話だけ (EXP-043)
+    const pending = thread === "todo" ? pendingJudgement(loaded.items, today) : null;
     const itemsAdded: { level: ItemLevel; title: string }[] = [];
 
     // --- 候補のボタンで選んだ項目は、AI に聞く前にそのまま足す (EXP-035: 確認を繰り返さない) ---
@@ -377,7 +385,7 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
     let picked = "";
     let pickAdded = false;
     if (pick && !pending) {
-      const pickStep = nextHierarchyStep(items, today);
+      const pickStep = threadStep(thread, items, today);
       const [input] = parseProposedItems([{ title: pick.title, target: pick.target }], pickStep, projectId);
       if (input) {
         const created = await perf.time("db_ms", () => createItem(sql, owner, input));
@@ -399,7 +407,7 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
     }
     perf.set({ pick_added: pickAdded });
 
-    const step = nextHierarchyStep(items, today);
+    const step = threadStep(thread, items, today);
     const prompt = buildPrompt(
       records,
       history,
@@ -412,8 +420,15 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
       picked,
       itemRefsText(itemRefs(items)),
       tasksText(loaded.tasks, neutralize),
+      thread,
     );
-    const result = await perf.time("gemini_ms", () => withGeminiRetry(() => model.generateContent(prompt)));
+    // 会話によってモデルを分ける (EXP-044)。上位が無い / 枠切れなら今のモデルで 1 回だけ
+    const generate = (m: string) =>
+      withGeminiRetry(() =>
+        genAI.getGenerativeModel({ model: m, generationConfig: { responseMimeType: "application/json", maxOutputTokens: 1024 } }).generateContent(prompt),
+      );
+    const { result, fellBack } = await perf.time("gemini_ms", () => withModelFallback(generate, modelFor(thread), GEMINI_MODEL));
+    perf.set({ model_fallback: fellBack });
 
     const out = parseModelOutput(result.response.text());
     const rawReply = out ? out.reply : FALLBACK_REPLY;
@@ -424,6 +439,9 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
     const timePrompted = hasTimeMarker(rawReply);
     const choices = out ? out.choices : [];
     perf.set({ fields_filled: filledCount(merged), time_prompted: timePrompted, choices_count: choices.length });
+    // 直前の自分の質問と同じ質問か (EXP-044)。真偽だけをログに
+    const prevAssistant = [...history].reverse().find((m) => m.role === "assistant")?.content ?? null;
+    perf.set({ question_repeat: isRepeatQuestion(reply, prevAssistant) });
 
     // --- 決まった項目を階層に足す (EXP-019)。段と親はサーバが決める ---
     // 判定を待っている間は階層に足さない (EXP-034)
@@ -454,7 +472,7 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
       });
       const n = await appendMessages(sql, owner, {
         projectId,
-        thread: THREAD,
+        thread,
         messages: [
           { role: "user", content: message },
           { role: "assistant", content: reply || FALLBACK_REPLY },
@@ -466,7 +484,7 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
 
     // --- 次に選べる候補 (EXP-035)。足した後の段で検査する。判定待ちの間は出さない ---
     const afterItems = itemsAdded.length > 0 ? await perf.time("db_ms", () => listItems(sql, owner, projectId)) : items;
-    const nextStep = nextHierarchyStep(afterItems, today);
+    const nextStep = threadStep(thread, afterItems, today);
     const candidates = out && !pending ? parseCandidates(out.candidates, nextStep, projectId) : [];
 
     // --- AI と決めた判定を、判定を待っている ToDo にだけ入れる (EXP-034) ---
@@ -483,7 +501,8 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
     if (out && !pending) {
       const kgiDue = items.find((i) => i.level === "kgi")?.dueDate ?? "";
       const change = parseItemChange(out.itemChange, itemRefs(items), kgiDue);
-      if (change && (change.item.level === "kpi" || change.item.level === "kdi")) {
+      // 変えてよいのは その会話の段だけ (KPI の会話は K・KDI の会話は D・EXP-043)
+      if (change && threadAllowsChange(thread, change.ref) && (change.item.level === "kpi" || change.item.level === "kdi")) {
         const updated = await perf.time("db_ms", () => updateItem(sql, owner, change.item.id, change.patch));
         if (updated && updated !== KGI_LOCKED) {
           itemChanged = {

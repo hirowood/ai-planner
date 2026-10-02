@@ -3,12 +3,13 @@ import { authState } from "../test/mocks/next-auth";
 import { geminiState } from "../test/mocks/generative-ai";
 import { capturePerf } from "../test/mocks/fetch";
 import { todayJst } from "./smart";
+import { GEMINI_MODEL } from "./model";
 
 // /api/coach が階層を読み、次の段の候補を聞き、決まった項目を次の段の親の下に足す (EXP-019 L3)
 const db = vi.hoisted(() => {
   type Call = { strings: string[]; values: unknown[] };
   type Row = Record<string, unknown>;
-  const state = { items: [] as Row[], calls: [] as Call[], refuseInsert: false, notes: [] as Row[], failMessages: false, tasks: [] as Row[] };
+  const state = { items: [] as Row[], calls: [] as Call[], refuseInsert: false, notes: [] as Row[], failMessages: false, tasks: [] as Row[], history: [] as Row[] };
   const text = (c: Call) => c.strings.join(" ").toLowerCase().replace(/\s+/g, " ");
   const T = "2026-10-01T00:00:00.000Z";
   const sql = async (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -52,7 +53,8 @@ const db = vi.hoisted(() => {
     }
     if (/from plan_items/.test(q)) return state.items;
     if (/from notes/.test(q)) return state.notes;
-    if (/from messages|from cycles/.test(q)) return [];
+    if (/from messages/.test(q)) return state.history;
+    if (/from cycles/.test(q)) return [];
     if (/from projects/.test(q)) {
       return [{ id: "3f2b8c1e-9a4d-4e6f-8b2a-1c5d7e9f0a3b", owner: "x", name: "英語", category: "learning", purpose: "", created_at: T, archived_at: null }];
     }
@@ -79,10 +81,17 @@ const row = (id: string, level: string, parent: string | null, title: string) =>
   id, project_id: PID, parent_id: parent, level, title, target: "", due_date: null, status: "todo", created_at: T, updated_at: T,
 });
 
+// EXP-043: 会話は目的ごと。thread を指定しないテストは、階層の状態に合う会話 (前の「次の段」と同じ) を使う
+function autoThread(): string {
+  const items = db.state.items;
+  if (!items.some((r) => r.level === "kpi")) return "kpi";
+  if (!items.some((r) => r.level === "kdi")) return "kdi";
+  return "todo";
+}
 function post(message = "それにします", extra: Record<string, unknown> = {}) {
   return new Request("http://l/api/coach", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ projectId: PID, message, ...extra }),
+    body: JSON.stringify({ projectId: PID, message, thread: autoThread(), ...extra }),
   });
 }
 const inserts = () => db.state.calls.filter((c) => /insert into plan_items/.test(db.text(c)));
@@ -100,6 +109,7 @@ describe("POST /api/coach — 階層の次の段 (EXP-019 L3)", () => {
     db.state.notes = [];
     db.state.failMessages = false;
     db.state.tasks = [];
+    db.state.history = [];
   });
   afterEach(() => perf.restore());
 
@@ -165,7 +175,7 @@ describe("POST /api/coach — 階層の次の段 (EXP-019 L3)", () => {
       }))),
     ];
     geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [{ title: "x" }, { title: "y" }, { title: "z" }] });
-    const body = await (await POST(post())).json();
+    const body = await (await POST(post("x", { thread: "kdi" }))).json();
     expect(body.itemsAdded).toEqual([{ level: "kdi", title: "x" }]);
     expect(inserts()).toHaveLength(1);
     expect(geminiState.lastPrompt ?? "").toContain('その KDI (行動の目標) を "items" に入れてください (最大 1 個)');
@@ -309,6 +319,14 @@ describe("POST /api/coach — 階層の次の段 (EXP-019 L3)", () => {
       for (const c of [EMAIL, TITLE]) expect(logs).not.toContain(c);
     });
 
+    it.each(["chat", "kgi", "kpi", "kdi"])("判定は ✅ ToDo の会話だけ — %s では判定しない (EXP-043)", async (thread) => {
+      setup();
+      geminiState.reply = JSON.stringify({ reply: "よくできました", plan: {}, choices: [], items: [], judgement: "succeeded" });
+      const body = await (await POST(post("判定基準を満たした", { thread }))).json();
+      expect(body.judged ?? null).toBeNull();
+      expect(db.state.calls.some((c) => /update plan_items set status/.test(db.text(c)))).toBe(false);
+    });
+
     it.each([["空", ""], ["知らない値", "done"], ["無い", undefined]])("判定が %s なら更新しない", async (_l, judgement) => {
       setup();
       geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [], judgement });
@@ -340,8 +358,9 @@ describe("POST /api/coach — 階層の次の段 (EXP-019 L3)", () => {
       const p = geminiState.lastPrompt ?? "";
       expect(p).toContain("### いまユーザーが選んで足した項目 (EXP-035)");
       expect(p).toContain(`KPI (途中の指標)『${PICK}』をサーバが階層に足しました。確認の質問はせず、次へ進んでください。`);
-      // 足した後の段で決め直す (KPI ができたので次は KDI)
-      expect(p).toContain("次に決める段: KDI (行動の目標)");
+      // EXP-043: KPI の会話は KPI だけを扱う (足した後も KPI の段のまま・KDI は 🧭 KDI の会話で)
+      expect(p).toContain("次に決める段: KPI (途中の指標)");
+      expect(p).toContain("この会話は「KPI」です");
       expect(perf.parsed().find((l) => l.route === "api/coach")).toMatchObject({ pick_added: true, items_added: 1 });
       const logs = perf.all.join(" ");
       for (const c of [EMAIL, PICK]) expect(logs).not.toContain(c);
@@ -408,7 +427,7 @@ describe("POST /api/coach — 階層の次の段 (EXP-019 L3)", () => {
     it("プロンプトに番号と変え方の文・同意した KPI の変更はその KPI だけに入る (owner をパラメータで)", async () => {
       setup();
       geminiState.reply = JSON.stringify({ reply: "650 点にしましょう", plan: {}, choices: [], items: [], itemChange: { ref: "K1", target: "650 点" } });
-      const body = await (await POST(post("それでいい"))).json();
+      const body = await (await POST(post("それでいい", { thread: "kpi" }))).json();
       const p = geminiState.lastPrompt ?? "";
       expect(p).toContain("#### KPI と KDI の番号 (EXP-038)");
       expect(p).toContain("- K1: KPI『模試 700』 / 判定基準 700 点");
@@ -425,7 +444,7 @@ describe("POST /api/coach — 階層の次の段 (EXP-019 L3)", () => {
     it("KDI の題も変えられる", async () => {
       setup();
       geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [], itemChange: { ref: "D1", title: "単語 20 分" } });
-      const body = await (await POST(post())).json();
+      const body = await (await POST(post("x", { thread: "kdi" }))).json();
       expect(body.itemChanged?.level).toBe("kdi");
       expect(body.itemChanged?.after.title).toBe("単語 20 分");
       expect(updates()[0].values).toContain(KDI_ID);
@@ -508,5 +527,115 @@ describe("POST /api/coach — 階層の次の段 (EXP-019 L3)", () => {
     const body = await (await POST(post())).json();
     expect(inserts()).toHaveLength(1);
     expect(body.itemsAdded).toEqual([]);
+  });
+});
+
+// --- EXP-043: 目的ごとのチャット / EXP-044: 会話の質 ---
+describe("POST /api/coach — 目的ごとのチャット (EXP-043・044)", () => {
+  let perf: ReturnType<typeof capturePerf>;
+  const KDI_ID = "00000000-0000-4000-8000-000000000003";
+  const full = () => [row(KGI_ID, "kgi", null, KGI_CANARY), row(KPI_ID, "kpi", KGI_ID, "模試 700"), row(KDI_ID, "kdi", KPI_ID, "単語")];
+  const call = (thread: unknown, message = "それにします") =>
+    POST(new Request("http://l/api/coach", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectId: PID, message, ...(thread === undefined ? {} : { thread }) }),
+    }));
+  const msgCalls = () => db.state.calls.filter((c) => /from messages/.test(db.text(c)));
+  const saveCalls = () => db.state.calls.filter((c) => /insert into messages/.test(db.text(c)));
+  beforeEach(() => {
+    perf = capturePerf();
+    authState.session = { user: { name: "t", email: EMAIL }, expires: "2099-01-01" } as never;
+    geminiState.failWith = null;
+    geminiState.failTimes = null;
+    db.state.items = full();
+    db.state.calls = [];
+    db.state.refuseInsert = false;
+    db.state.notes = [];
+    db.state.failMessages = false;
+    db.state.tasks = [];
+    db.state.history = [];
+  });
+  afterEach(() => perf.restore());
+
+  it("知らない thread は 400・無ければ壁打ち (chat) の会話を読む", async () => {
+    geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [] });
+    expect((await call("plan")).status).toBe(400);
+    expect((await call("xyz")).status).toBe(400);
+    db.state.calls = [];
+    expect((await call(undefined)).status).toBe(200);
+    expect(msgCalls()[0].values).toContain("chat");
+  });
+
+  it("会話はその thread のものだけを読み、その thread へ保存する", async () => {
+    geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [] });
+    await call("kdi");
+    expect(msgCalls()[0].values).toContain("kdi");
+    expect(saveCalls().length).toBeGreaterThan(0);
+    for (const c of saveCalls()) expect(c.values).toContain("kdi");
+    expect(geminiState.lastPrompt ?? "").toContain("この会話は「KDI」です");
+  });
+
+  it("壁打ち・相談と KGI は階層に足さず、番号の変更もしない", async () => {
+    for (const thread of ["chat", "kgi"]) {
+      db.state.calls = [];
+      geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [{ title: "x" }], itemChange: { ref: "K1", target: "650 点" } });
+      const body = await (await call(thread)).json();
+      expect(body.itemsAdded ?? []).toEqual([]);
+      expect(inserts()).toHaveLength(0);
+      expect(db.state.calls.some((c) => /update plan_items set title/.test(db.text(c)))).toBe(false);
+      expect(geminiState.lastPrompt ?? "").toContain("この会話では階層に足しません");
+    }
+  });
+
+  it("ToDo の会話は今日の ToDo を KDI の下に足し、KPI の番号は変えない", async () => {
+    geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [{ title: "単語 20 個" }], itemChange: { ref: "K1", target: "650 点" } });
+    const body = await (await call("todo")).json();
+    expect(body.itemsAdded).toEqual([{ level: "todo", title: "単語 20 個" }]);
+    expect(inserts()[0].values).toContain(KDI_ID);
+    expect(db.state.calls.some((c) => /update plan_items set title/.test(db.text(c)))).toBe(false);
+  });
+
+  it("KPI の会話は KPI を足し、KDI の番号は変えない", async () => {
+    geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [{ title: "模試 750" }], itemChange: { ref: "D1", title: "単語 40 分" } });
+    const body = await (await call("kpi")).json();
+    expect(body.itemsAdded).toEqual([{ level: "kpi", title: "模試 750" }]);
+    expect(inserts()[0].values).toContain(KGI_ID);
+    expect(db.state.calls.some((c) => /update plan_items set title/.test(db.text(c)))).toBe(false);
+  });
+
+  it("会話の質の決まり (同じ質問をしない・記録に基づく・提案か質問を 1 つ) がプロンプトに入る", async () => {
+    geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [] });
+    await call("chat");
+    const p = geminiState.lastPrompt ?? "";
+    expect(p).toContain("### この会話の役割 (EXP-043)");
+    expect(p).toContain("### 会話の質 (EXP-044)");
+    expect(p).toContain("直前の自分の質問と同じ質問をしない");
+    expect(p).toContain("具体的に話してください: 数・期日・時刻・回数で言ってください。記録に無い数字は作らないでください。");
+    expect(p).toContain("このユーザーの記録 (進み具合・前の日の記録・仮説) に結びつけてください");
+  });
+
+  it("直前と同じ質問なら question_repeat が true (真偽だけで中身はログに出ない)", async () => {
+    const Q = "canary-q-8d2e 何時にやりますか？";
+    db.state.history = [
+      { id: "h1", role: "user", content: "a", created_at: T },
+      { id: "h2", role: "assistant", content: `いいですね。${Q}`, created_at: T },
+    ];
+    geminiState.reply = JSON.stringify({ reply: `わかりました。 ${Q}`, plan: {}, choices: [], items: [] });
+    await call("todo");
+    const line = perf.parsed().find((l) => l.route === "api/coach");
+    expect(line).toMatchObject({ question_repeat: true, model_fallback: false });
+    expect(perf.all.join("\n")).not.toContain("canary-q-8d2e");
+    perf.restore(); perf = capturePerf();
+    geminiState.reply = JSON.stringify({ reply: "では、終わったら教えてください。", plan: {}, choices: [], items: [] });
+    await call("todo");
+    expect(perf.parsed().find((l) => l.route === "api/coach")).toMatchObject({ question_repeat: false });
+  });
+
+  it("上位のモデルが確かめられるまでは、どの会話も今のモデル", async () => {
+    geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [] });
+    for (const thread of ["chat", "kgi", "kpi", "kdi", "todo"]) {
+      await call(thread);
+      expect(geminiState.lastModel).toBe(GEMINI_MODEL);
+    }
   });
 });

@@ -45,7 +45,8 @@ describe("コーチ・メンターのプロンプト (EXP-022 L1)", () => {
     const p = geminiState.lastPrompt ?? "";
     expect(p).toContain("伴走するコーチであり、メンターです");
     expect(p).toContain("答えを押し付けず、問いで気づかせてください");
-    expect(p).toMatch(/①受け止め[\s\S]*②記録に基づく所見か助言[\s\S]*③次の一歩の問い 1 つ/);
+    // EXP-044 で返答の形を「③提案を 1 つか質問を 1 つ」に (EXP-022 の「③次の一歩の問い」を置き換え)
+    expect(p).toMatch(/①受け止め[\s\S]*②記録に基づく所見[\s\S]*③提案を 1 つ[\s\S]*質問を 1 つ/);
     expect(p).toContain("期日と数値");
     expect(p).toContain("3 つに絞ります");
     // EXP-024 で KGI を固定したので、調整の型から「ゴール」を外した (EXP-022 の 4 つの型を置き換え)

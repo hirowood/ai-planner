@@ -27,7 +27,11 @@ describe("isThread (EXP-010 L1)", () => {
     expect(isThread(t)).toBe(true);
   });
 
-  it.each([["do"], ["Plan"], [""], [null], [undefined], [1], [{}]])("%j は thread でない (EXP-010 L1)", (t) => {
+  it.each(["kgi", "kpi", "kdi", "todo"])("%s も thread (目的ごとのチャット・EXP-043)", (t) => {
+    expect(isThread(t)).toBe(true);
+  });
+
+  it.each([["do"], ["Plan"], [""], [null], [undefined], [1], [{}], ["consult"], ["setup"]])("%j は thread でない (EXP-010 L1)", (t) => {
     expect(isThread(t)).toBe(false);
   });
 });

@@ -18,6 +18,7 @@ import { completeMessage, judgedNotice } from "../lib/judgement";
 import { itemChangedNotice } from "../lib/item-change";
 import { DailyView, useDaily } from "./components/DailyPanel";
 import { TechoView } from "./components/Techo";
+import { COACH_THREADS, THREAD_LABEL, type CoachThread } from "../lib/threads";
 import { AppCalendar, SlotEditor, gridRange, useSlots, useTasks } from "./components/Schedule";
 import type { TechoMode } from "../lib/techo";
 import { parsePlanDraft, PLAN_FIELDS, PLAN_FIELD_LABEL, type PlanDraft } from "../lib/pdca-plan";
@@ -117,6 +118,12 @@ function AppContent() {
   const [timeDialogOpen, setTimeDialogOpen] = useState(false);
   // 右の列の切り替え (EXP-008)。既定はプロジェクト
   const [sideTab, setSideTab] = useState<'projects' | 'schedule' | 'techo'>('projects');
+  // 目的ごとのチャット (EXP-043)。既定は壁打ち・相談 (今までの会話もここ)
+  const [chatThread, setChatThread] = useState<CoachThread>('chat');
+  const chatThreadRef = useRef<CoachThread>('chat');
+  const handleSendMessageRef = useRef<(text: string) => Promise<void> | void>(() => {});
+  // 別のチャットへ送るとき、そのチャットの会話を読み終えてから送る
+  const queuedSend = useRef<{ thread: CoachThread; text: string } | null>(null);
   const workspace = useProjectWorkspace(Boolean(session));
   // 選んだプロジェクトの中の切り替え (EXP-009)。既定は Plan
   // 既定は「今日」(EXP-020): 毎日開いて Do と Check を回す
@@ -200,17 +207,19 @@ function AppContent() {
 
   useEffect(() => {
     chatProjectId.current = selectedProjectId;
+    chatThreadRef.current = chatThread;
     if (!selectedProjectId) {
       setHistoryLoading(false);
       return;
     }
     const projectId = selectedProjectId;
+    const thread = chatThread;
     setHistoryLoading(true);
     setPendingPlan(null);
     void (async () => {
       let loaded: Message[] | null = null;
       try {
-        const res = await fetch(`/api/messages?projectId=${encodeURIComponent(projectId)}&thread=chat`);
+        const res = await fetch(`/api/messages?projectId=${encodeURIComponent(projectId)}&thread=${thread}`);
         if (res.ok) {
           const body: unknown = await res.json().catch(() => null);
           const list = (body as { messages?: unknown } | null)?.messages;
@@ -226,14 +235,20 @@ function AppContent() {
       } catch (err: unknown) {
         console.error("Failed to load chat messages:", err);
       }
-      if (chatProjectId.current !== projectId) return;
+      if (chatProjectId.current !== projectId || chatThreadRef.current !== thread) return;
       const welcome = pendingAfterCreate.current;
       pendingAfterCreate.current = null;
       setMessages([...(loaded ?? []), ...(welcome ? [{ role: 'assistant' as const, content: welcome }] : [])]);
       setChatProblem(loaded === null ? '会話を読み込めませんでした' : null);
       setHistoryLoading(false);
+      // ほかの欄から送られた文 (例「✓ 完了」の判定) をこのチャットで送る (EXP-043)
+      const q = queuedSend.current;
+      if (q && q.thread === thread) {
+        queuedSend.current = null;
+        setTimeout(() => void handleSendMessageRef.current(q.text), 0);
+      }
     })();
-  }, [selectedProjectId]);
+  }, [selectedProjectId, chatThread]);
 
   const fetchEvents = async () => {
     try {
@@ -333,7 +348,7 @@ function AppContent() {
         const response = await fetch('/api/coach', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ projectId: saveTo, message: userMessage.content, ...(via ? { via } : {}), ...(pick ? { pick } : {}) }),
+          body: JSON.stringify({ projectId: saveTo, message: userMessage.content, thread: chatThreadRef.current, ...(via ? { via } : {}), ...(pick ? { pick } : {}) }),
         });
         const body: unknown = await response.json().catch(() => null);
         if (chatProjectId.current !== saveTo) return;
@@ -542,6 +557,18 @@ function AppContent() {
     }
   };
 
+  handleSendMessageRef.current = (text: string) => handleSendMessage(text);
+  /** 決まったチャットへ送る (EXP-043)。今のチャットと違えば切り替えて、会話を読み終えてから送る */
+  const sendTo = (thread: CoachThread, text: string) => {
+    if (chatThreadRef.current === thread) {
+      void handleSendMessage(text);
+    } else {
+      queuedSend.current = { thread, text };
+      setChatThread(thread);
+    }
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
   const handleChoose = (choice: Choice) => {
     if (chatBusy) return;
     if (choice.message) {
@@ -698,6 +725,32 @@ function AppContent() {
           )}
         </header>
 
+        {/* 目的ごとのチャット (EXP-043)。プロジェクトを選んでいなければ「プロジェクト作成」だけ */}
+        <div role="tablist" aria-label="チャット" className="flex flex-wrap gap-1 border-b bg-white px-4 py-2">
+          {workspace.selected && COACH_THREADS.map((t) => (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              id={`chat-tab-${t}`}
+              aria-selected={!setupDraft && chatThread === t}
+              onClick={() => { if (setupDraft) exitSetup(); setChatThread(t); }}
+              className={`px-3 py-1.5 rounded-lg border text-sm font-bold focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${!setupDraft && chatThread === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'}`}
+            >
+              <span aria-hidden="true">{THREAD_LABEL[t].icon}</span> {THREAD_LABEL[t].label}
+            </button>
+          ))}
+          <button
+            type="button"
+            role="tab"
+            id="chat-tab-setup"
+            aria-selected={!!setupDraft}
+            onClick={() => { if (!setupDraft) handleChoose({ id: 'new_project', label: '新しいプロジェクト' } as Choice); }}
+            className={`px-3 py-1.5 rounded-lg border text-sm font-bold focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${setupDraft ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'}`}
+          >
+            <span aria-hidden="true">🆕</span> プロジェクト作成
+          </button>
+        </div>
         <main tabIndex={0} aria-label="会話" className="flex-1 overflow-y-auto p-4 space-y-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500">
            {workspace.selected && (
              <p className="text-xs text-gray-600"><span aria-hidden="true">💬</span> 『{workspace.selected.name}』の PDCA (記録を見て答えます)</p>
@@ -887,11 +940,10 @@ function AppContent() {
                       saved={false}
                       onUpdateItem={(id, p) => void it.update(id, p)}
                       onSave={() => {}}
-                      onAsk={(text) => { void handleSendMessage(text); setTimeout(() => inputRef.current?.focus(), 0); }}
+                      onAsk={(text) => sendTo('todo', text)}
                       onComplete={(item) => {
-                        // 実行 (判定待ち) にしてから、会話で判定を頼む (EXP-034)
-                        void it.update(item.id, { status: 'done' }).then(() => handleSendMessage(completeMessage(item.title)));
-                        setTimeout(() => inputRef.current?.focus(), 0);
+                        // 実行 (判定待ち) にしてから、✅ ToDo のチャットで判定を頼む (EXP-034・043)
+                        void it.update(item.id, { status: 'done' }).then(() => sendTo('todo', completeMessage(item.title)));
                       }}
                     />
                     {it.items.some((t) => t.level === 'todo' && t.dueDate === daily.today) && (
@@ -1000,7 +1052,7 @@ function AppContent() {
                       saved={daily.savedDay === date}
                       onUpdateItem={(id, p) => void it.update(id, p)}
                       onSave={(d) => void daily.save(date, d)}
-                      onAsk={(text) => { void handleSendMessage(text); setTimeout(() => inputRef.current?.focus(), 0); }}
+                      onAsk={(text) => sendTo('todo', text)}
                     />
                   )}
                 />

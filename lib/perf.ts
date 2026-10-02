@@ -31,6 +31,8 @@ export type PerfLine = {
   judgement_applied?: boolean; // AI と決めた判定を ToDo に入れたか (EXP-034)。中身は持たない
   pick_added?: boolean; // 候補のボタンで選んだ項目を足したか (EXP-035)。中身は持たない
   item_changed?: boolean; // AI と話して KPI か KDI を変えたか (EXP-038)。中身は持たない
+  model_fallback?: boolean; // 上位のモデルが使えず今のモデルで送り直したか (EXP-044)
+  question_repeat?: boolean; // 返答の質問が直前の自分の質問と同じか (EXP-044)。中身は持たない
 };
 
 // 真偽・数を出すための検査だけに使う。ここで見た本文はどこにも残さない
@@ -52,7 +54,9 @@ type KnownField =
   | "hypothesis_saved"
   | "judgement_applied"
   | "pick_added"
-  | "item_changed";
+  | "item_changed"
+  | "model_fallback"
+  | "question_repeat";
 
 const round = (ms: number): number => Math.round(ms * 10) / 10;
 
@@ -79,6 +83,8 @@ export function formatPerfLine(line: PerfLine): string {
   if (line.judgement_applied !== undefined) out.judgement_applied = line.judgement_applied;
   if (line.pick_added !== undefined) out.pick_added = line.pick_added;
   if (line.item_changed !== undefined) out.item_changed = line.item_changed;
+  if (line.model_fallback !== undefined) out.model_fallback = line.model_fallback;
+  if (line.question_repeat !== undefined) out.question_repeat = line.question_repeat;
   return `[perf] ${JSON.stringify(out)}`;
 }
 
@@ -117,6 +123,8 @@ export function startPerf(route: string, parts: PerfPart[] = []) {
       if (fields.judgement_applied !== undefined) known.judgement_applied = fields.judgement_applied;
       if (fields.pick_added !== undefined) known.pick_added = fields.pick_added;
       if (fields.item_changed !== undefined) known.item_changed = fields.item_changed;
+      if (fields.model_fallback !== undefined) known.model_fallback = fields.model_fallback;
+      if (fields.question_repeat !== undefined) known.question_repeat = fields.question_repeat;
     },
 
     /** 外部呼び出し 1 回を計測して `part` に加算する。 */
