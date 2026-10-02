@@ -13,6 +13,25 @@ export function isOverloaded(error: unknown): boolean {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** 上位のモデルが無い (404)・枠切れ (429)・混雑 (503) なら、今のモデルで 1 回だけ送り直す (EXP-044)。ほかの失敗はそのまま投げる。 */
+export async function withModelFallback<T>(
+  run: (model: string) => Promise<T>,
+  primary: string,
+  fallback: string,
+): Promise<{ result: T; fellBack: boolean }> {
+  if (primary === fallback) return { result: await run(primary), fellBack: false };
+  try {
+    return { result: await run(primary), fellBack: false };
+  } catch (error: unknown) {
+    const status = (error as { status?: unknown } | null)?.status;
+    const message = String((error as { message?: unknown } | null)?.message ?? "");
+    const missingOrQuota = status === 404 || status === 429 || /\b(404|429)\b/.test(message);
+    // 混雑 (503) も替える (EXP-044 の事前登録の後の変更: 実測で上位が 503 を返した)
+    if (!missingOrQuota && !isOverloaded(error)) throw error;
+    return { result: await run(fallback), fellBack: true };
+  }
+}
+
 /** fn が 503 で失敗したら wait ms 待って 1 回だけ送り直す。2 回目の失敗はそのまま投げる。 */
 export async function withGeminiRetry<T>(fn: () => Promise<T>, wait = 800): Promise<T> {
   try {

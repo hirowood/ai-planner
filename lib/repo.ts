@@ -6,6 +6,8 @@ import type { Category, Note, NoteInput, NoteKind, Project, ProjectInput } from 
 import { EMPTY_PLAN, parsePlanDraft, type PlanDraft } from "./pdca-plan";
 import type { PastProject } from "./setup-start";
 import type { ItemEvent } from "./todo-event";
+import type { ItemSlot } from "./slots";
+import type { DailyTask, TaskInput, TaskPatch } from "./daily-tasks";
 import { DAILY_LIMIT, type DailyInput, type DailyLog, type DailyMark } from "./daily";
 import { HISTORY_LIMIT, type MessagesInput, type StoredMessage, type Thread } from "./messages";
 import {
@@ -610,4 +612,109 @@ export async function judgeItem(sql: Sql, owner: string, id: string, status: "su
     returning id, project_id, parent_id, level, title, target, due_date, status, created_at, updated_at
   `;
   return rows.length > 0 ? toItem(rows[0]) : null;
+}
+
+// --- ToDo の時刻 (EXP-039) ---
+
+/** 持ち主の ToDo のときだけ時刻を作るか上書きする。ToDo でない / 他人 / 無い → false。 */
+export async function upsertItemSlot(sql: Sql, owner: string, itemId: string, start: string, end: string): Promise<boolean> {
+  const rows = await sql`
+    insert into item_slots (item_id, owner, start_time, end_time)
+    select ${itemId}, ${owner}, ${start}, ${end}
+    where exists (select 1 from plan_items where id = ${itemId} and owner = ${owner} and level = 'todo')
+    on conflict (item_id) do update set start_time = excluded.start_time, end_time = excluded.end_time, updated_at = now()
+    where item_slots.owner = ${owner}
+    returning item_id
+  `;
+  return rows.length > 0;
+}
+
+/** 持ち主の ToDo の時刻を外す。持ち主の ToDo なら (時刻が無くても) true。 */
+export async function deleteItemSlot(sql: Sql, owner: string, itemId: string): Promise<boolean> {
+  const item = await getItem(sql, owner, itemId);
+  if (!item || item.level !== "todo") return false;
+  await sql`delete from item_slots where item_id = ${itemId} and owner = ${owner}`;
+  return true;
+}
+
+/** 持ち主のプロジェクトの ToDo の時刻。 */
+export async function listItemSlots(sql: Sql, owner: string, projectId: string): Promise<ItemSlot[]> {
+  const rows = await sql`
+    select s.item_id, s.start_time, s.end_time from item_slots s
+    join plan_items i on i.id = s.item_id
+    where s.owner = ${owner} and i.owner = ${owner} and i.project_id = ${projectId}
+  `;
+  return rows.map((r: Row) => ({ itemId: String(r.item_id), start: String(r.start_time), end: String(r.end_time) }));
+}
+
+export type ScheduledTodo = { itemId: string; projectId: string; projectName: string; title: string; dueDate: string; status: ItemStatus; start: string; end: string };
+
+/** 持ち主の全プロジェクト (しまっていない) の、期日が from〜to の ToDo と時刻とプロジェクト名 (EXP-039 のカレンダー)。 */
+export async function listScheduledTodos(sql: Sql, owner: string, from: string, to: string): Promise<ScheduledTodo[]> {
+  const rows = await sql`
+    select i.id, i.project_id, p.name as project_name, i.title, i.due_date, i.status,
+      coalesce(s.start_time, '') as start_time, coalesce(s.end_time, '') as end_time
+    from plan_items i
+    join projects p on p.id = i.project_id
+    left join item_slots s on s.item_id = i.id and s.owner = ${owner}
+    where i.owner = ${owner} and p.owner = ${owner} and p.archived_at is null
+      and i.level = 'todo' and i.due_date between ${from}::date and ${to}::date
+    order by i.due_date asc, i.created_at asc
+  `;
+  return rows.map((r: Row) => ({
+    itemId: String(r.id), projectId: String(r.project_id), projectName: String(r.project_name ?? ""),
+    title: String(r.title), dueDate: toDateOnly(r.due_date), status: String(r.status) as ItemStatus,
+    start: String(r.start_time ?? ""), end: String(r.end_time ?? ""),
+  }));
+}
+
+// --- 日常のタスク (EXP-040) ---
+
+function toTask(r: Row): DailyTask {
+  return {
+    id: String(r.id), day: toDateOnly(r.day), title: String(r.title),
+    start: String(r.start_time ?? ""), end: String(r.end_time ?? ""),
+    status: String(r.status) as DailyTask["status"], createdAt: toIso(r.created_at),
+  };
+}
+
+/** 持ち主の日常のタスク (from〜to)。 */
+export async function listTasks(sql: Sql, owner: string, from: string, to: string): Promise<DailyTask[]> {
+  const rows = await sql`
+    select id, day, title, start_time, end_time, status, created_at from daily_tasks
+    where owner = ${owner} and day between ${from}::date and ${to}::date
+    order by day asc, created_at asc
+  `;
+  return rows.map(toTask);
+}
+
+export async function createTask(sql: Sql, owner: string, input: TaskInput): Promise<DailyTask> {
+  const rows = await sql`
+    insert into daily_tasks (owner, day, title, start_time, end_time, status)
+    values (${owner}, ${input.day}::date, ${input.title}, ${input.start}, ${input.end}, ${input.status})
+    returning id, day, title, start_time, end_time, status, created_at
+  `;
+  return toTask(rows[0]);
+}
+
+/** 持ち主のタスクだけを変える。無い / 他人 → null。 */
+export async function updateTask(sql: Sql, owner: string, id: string, patch: TaskPatch): Promise<DailyTask | null> {
+  const hasSlot = patch.start !== undefined;
+  const rows = await sql`
+    update daily_tasks set
+      title = coalesce(${patch.title ?? null}, title),
+      status = coalesce(${patch.status ?? null}, status),
+      start_time = case when ${hasSlot}::boolean then ${patch.start ?? ""} else start_time end,
+      end_time = case when ${hasSlot}::boolean then ${patch.end ?? ""} else end_time end,
+      updated_at = now()
+    where id = ${id} and owner = ${owner}
+    returning id, day, title, start_time, end_time, status, created_at
+  `;
+  return rows.length > 0 ? toTask(rows[0]) : null;
+}
+
+/** 持ち主のタスクを消せたら true。 */
+export async function deleteTask(sql: Sql, owner: string, id: string): Promise<boolean> {
+  const rows = await sql`delete from daily_tasks where id = ${id} and owner = ${owner} returning id`;
+  return rows.length > 0;
 }

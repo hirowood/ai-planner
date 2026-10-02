@@ -10,6 +10,15 @@ export type PresetNoteKind = "fact" | "data" | "thought";
 export type NoteKind = string;
 export const NOTE_KIND_LABEL: Record<PresetNoteKind, string> = { fact: "事実", data: "データ", thought: "考え" };
 
+/** 手帳のノートの種類 (EXP-042): 仮説・検証結果を先に。値は文字のまま保存する (AI が残す「仮説」と同じ)。 */
+export const HYPOTHESIS_NOTE = "仮説";
+export const RESULT_NOTE = "検証結果";
+export const TECHO_NOTE_KINDS: Record<string, string> = {
+  [HYPOTHESIS_NOTE]: HYPOTHESIS_NOTE,
+  [RESULT_NOTE]: RESULT_NOTE,
+  ...NOTE_KIND_LABEL,
+};
+
 /** 自由入力の種類の字数の上限。 */
 export const CUSTOM_KIND_MAX = 20;
 

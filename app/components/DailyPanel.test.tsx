@@ -18,11 +18,18 @@ const render = (items: PlanItem[], logs: DailyLog[] = [], saved = false) =>
   );
 
 describe("「☀️ 今日」のタブ (EXP-020 L5)", () => {
-  it("今日のタブが既定 (page.tsx)", () => {
+  it("右の列は プロジェクト・スケジュール・手帳 の 3 つ・プロジェクトの中は タスク (既定)・Plan・ノート (EXP-041 が EXP-020・036 の並びを置き換え)", () => {
     const src = readFileSync(new URL("../page.tsx", import.meta.url), "utf8");
-    expect(src).toContain("useState<'today' | 'plan' | 'notes'>('today')");
-    // EXP-036 でタブの名前を「📒 手帳」に (中身は手帳の日のページ)
-    expect(src).toContain("['today', '📒', '手帳']");
+    expect(src).toContain("[['projects', '📁', 'プロジェクト'], ['schedule', '📅', 'スケジュール'], ['techo', '📒', '手帳']]");
+    expect(src).toContain("useState<'projects' | 'schedule' | 'techo'>('projects')");
+    // EXP-042: ノートは手帳へ (プロジェクトの中は タスク・Plan)
+    expect(src).toContain("[['tasks', '✅', 'タスク'], ['plan', '📝', 'Plan']]");
+    expect(src).toContain("useState<'tasks' | 'plan'>('tasks')");
+    expect(src).not.toContain('id="project-panel-notes"');
+    // プロジェクトのタスクは todos・手帳は reflection
+    expect(src).toContain('parts="todos"');
+    expect(src).toContain('parts="reflection"');
+    expect(src).toContain("でプロジェクトを選ぶと、そのプロジェクトの手帳が開きます");
   });
   it("〇△× は fieldset と legend のラジオ・良かったこと 3 つ・明日はこうする", () => {
     const html = render([]);
@@ -102,5 +109,31 @@ describe("「☀️ 今日」のタブ (EXP-020 L5)", () => {
     expect(html).toContain("今日の記録を保存しました");
     expect(html).toContain("AI にひとことをもらう");
     expect(ASK_COMMENT).toContain("ひとこと");
+  });
+});
+
+describe("DailyView の parts (EXP-041 L2)", () => {
+  const items = [{ ...todo(1), status: "doing" as const, target: "30 個" }];
+  it("todos: 今日の ToDo とボタンだけ (振り返りなし)", () => {
+    const html = renderToStaticMarkup(
+      <DailyView parts="todos" today={TODAY} items={items} logs={[]} problem={null} saving={false} saved={false} onUpdateItem={noop} onSave={noop} onAsk={noop} />,
+    );
+    expect(html).toContain("今日の ToDo");
+    expect(html).toContain("を完了にする");
+    expect(html).not.toContain("今日の振り返り");
+    expect(html).not.toContain('type="radio"');
+    expect(html).not.toContain("この日の ToDo の結果");
+  });
+  it("reflection: 振り返りと ToDo の結果 (見るだけ・ボタンなし)", () => {
+    const html = renderToStaticMarkup(
+      <DailyView parts="reflection" today={TODAY} items={items} logs={[]} problem={null} saving={false} saved={false} onUpdateItem={noop} onSave={noop} onAsk={noop} />,
+    );
+    expect(html).toContain("この日の ToDo の結果");
+    expect(html).toContain("[実行中]</span> 単語 1");
+    expect(html).toContain("(判定基準: 30 個)");
+    expect(html).toContain("今日の振り返り");
+    expect(html).not.toContain("を完了にする");
+    expect(html).not.toContain("の状態</");
+    expect(html).not.toContain('aria-label="『単語 1』の状態"');
   });
 });

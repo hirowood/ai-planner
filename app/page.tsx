@@ -9,6 +9,7 @@ import { hasTimeMarker, stripTimeMarker } from "../lib/time-input";
 import { TimeDialog } from "./components/TimeDialog";
 import { ProjectPanel, useProjectWorkspace } from "./components/ProjectPanel";
 import { NotesPanel } from "./components/NotesPanel";
+import { HYPOTHESIS_NOTE, RESULT_NOTE, TECHO_NOTE_KINDS } from "../lib/projects";
 import { PlanFields, usePlanStore } from "./components/PlanFields";
 import { PlanTree, useItems } from "./components/PlanTree";
 import { choiceButtons, itemsAddedNotice, parseCandidateList, type Candidate } from "../lib/hierarchy-step";
@@ -16,10 +17,10 @@ import { hypothesisNotice } from "../lib/progress";
 import { completeMessage, judgedNotice } from "../lib/judgement";
 import { itemChangedNotice } from "../lib/item-change";
 import { DailyView, useDaily } from "./components/DailyPanel";
-import { TodoScheduleView, useItemEvents } from "./components/TodoSchedule";
 import { TechoView } from "./components/Techo";
+import { COACH_THREADS, THREAD_LABEL, type CoachThread } from "../lib/threads";
+import { AppCalendar, SlotEditor, gridRange, useSlots, useTasks } from "./components/Schedule";
 import type { TechoMode } from "../lib/techo";
-import { eventLabel } from "../lib/todo-event";
 import { parsePlanDraft, PLAN_FIELDS, PLAN_FIELD_LABEL, type PlanDraft } from "../lib/pdca-plan";
 import { greetingFor, startMessage, startChoices, type Choice } from "../lib/greeting";
 import { StartChoices } from "./components/StartChoices";
@@ -116,11 +117,18 @@ function AppContent() {
   // AI が時間を聞いたときに開く入力画面 (EXP-006)
   const [timeDialogOpen, setTimeDialogOpen] = useState(false);
   // 右の列の切り替え (EXP-008)。既定はプロジェクト
-  const [sideTab, setSideTab] = useState<'projects' | 'calendar'>('projects');
+  const [sideTab, setSideTab] = useState<'projects' | 'schedule' | 'techo'>('projects');
+  // 目的ごとのチャット (EXP-043)。既定は壁打ち・相談 (今までの会話もここ)
+  const [chatThread, setChatThread] = useState<CoachThread>('chat');
+  const chatThreadRef = useRef<CoachThread>('chat');
+  const handleSendMessageRef = useRef<(text: string) => Promise<void> | void>(() => {});
+  // 別のチャットへ送るとき、そのチャットの会話を読み終えてから送る
+  const queuedSend = useRef<{ thread: CoachThread; text: string } | null>(null);
   const workspace = useProjectWorkspace(Boolean(session));
   // 選んだプロジェクトの中の切り替え (EXP-009)。既定は Plan
   // 既定は「今日」(EXP-020): 毎日開いて Do と Check を回す
-  const [projectTab, setProjectTab] = useState<'today' | 'plan' | 'notes'>('today');
+  // プロジェクトの中のタブ (EXP-041): タスク (既定)・Plan。ノートは手帳へ (EXP-042)
+  const [projectTab, setProjectTab] = useState<'tasks' | 'plan'>('tasks');
   // 選んだプロジェクトの thread "chat" の読み込み中 (EXP-010)
   const [historyLoading, setHistoryLoading] = useState(false);
   // いま会話が属するプロジェクト。遅れて届いた古い読み込みを捨て、保存先を決める
@@ -135,7 +143,10 @@ function AppContent() {
   // 手帳の表示 (EXP-036): 日・週・月と、開いている日 (null = 今日)
   const [techo, setTecho] = useState<{ mode: TechoMode; date: string | null }>({ mode: 'day', date: null });
   const techoDate = techo.date ?? daily.today;
-  const itemEvents = useItemEvents(workspace.selectedId);
+  // アプリ内の予定表 (EXP-039・040): ToDo の時刻と日常のタスク (手帳の月の表の範囲)
+  const slots = useSlots(workspace.selectedId);
+  const taskRange = gridRange(techoDate);
+  const tasks = useTasks(taskRange.from, taskRange.to);
   // 階層の KGI (固定) を Plan の要点に読み取り専用で出す (EXP-018)
   const kgiItem = it.items.find((i) => i.level === 'kgi');
   const kgiText = kgiItem
@@ -196,17 +207,19 @@ function AppContent() {
 
   useEffect(() => {
     chatProjectId.current = selectedProjectId;
+    chatThreadRef.current = chatThread;
     if (!selectedProjectId) {
       setHistoryLoading(false);
       return;
     }
     const projectId = selectedProjectId;
+    const thread = chatThread;
     setHistoryLoading(true);
     setPendingPlan(null);
     void (async () => {
       let loaded: Message[] | null = null;
       try {
-        const res = await fetch(`/api/messages?projectId=${encodeURIComponent(projectId)}&thread=chat`);
+        const res = await fetch(`/api/messages?projectId=${encodeURIComponent(projectId)}&thread=${thread}`);
         if (res.ok) {
           const body: unknown = await res.json().catch(() => null);
           const list = (body as { messages?: unknown } | null)?.messages;
@@ -222,14 +235,20 @@ function AppContent() {
       } catch (err: unknown) {
         console.error("Failed to load chat messages:", err);
       }
-      if (chatProjectId.current !== projectId) return;
+      if (chatProjectId.current !== projectId || chatThreadRef.current !== thread) return;
       const welcome = pendingAfterCreate.current;
       pendingAfterCreate.current = null;
       setMessages([...(loaded ?? []), ...(welcome ? [{ role: 'assistant' as const, content: welcome }] : [])]);
       setChatProblem(loaded === null ? '会話を読み込めませんでした' : null);
       setHistoryLoading(false);
+      // ほかの欄から送られた文 (例「✓ 完了」の判定) をこのチャットで送る (EXP-043)
+      const q = queuedSend.current;
+      if (q && q.thread === thread) {
+        queuedSend.current = null;
+        setTimeout(() => void handleSendMessageRef.current(q.text), 0);
+      }
     })();
-  }, [selectedProjectId]);
+  }, [selectedProjectId, chatThread]);
 
   const fetchEvents = async () => {
     try {
@@ -329,7 +348,7 @@ function AppContent() {
         const response = await fetch('/api/coach', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ projectId: saveTo, message: userMessage.content, ...(via ? { via } : {}), ...(pick ? { pick } : {}) }),
+          body: JSON.stringify({ projectId: saveTo, message: userMessage.content, thread: chatThreadRef.current, ...(via ? { via } : {}), ...(pick ? { pick } : {}) }),
         });
         const body: unknown = await response.json().catch(() => null);
         if (chatProjectId.current !== saveTo) return;
@@ -538,6 +557,18 @@ function AppContent() {
     }
   };
 
+  handleSendMessageRef.current = (text: string) => handleSendMessage(text);
+  /** 決まったチャットへ送る (EXP-043)。今のチャットと違えば切り替えて、会話を読み終えてから送る */
+  const sendTo = (thread: CoachThread, text: string) => {
+    if (chatThreadRef.current === thread) {
+      void handleSendMessage(text);
+    } else {
+      queuedSend.current = { thread, text };
+      setChatThread(thread);
+    }
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
   const handleChoose = (choice: Choice) => {
     if (chatBusy) return;
     if (choice.message) {
@@ -559,7 +590,7 @@ function AppContent() {
         void loadSetupStart();
         return;
       case 'calendar':
-        setSideTab('calendar');
+        setSideTab('schedule');
         // 右の列が黙って切り替わらないよう、常設の status で知らせる (4.1.3)
         setPlanUpdated('右の列で予定を開きました');
         return;
@@ -640,6 +671,7 @@ function AppContent() {
     return now.toDateString() === eventDate.toDateString();
   };
 
+  // Google の予定の一覧 (今は画面に出さない・Google カレンダーは後で実装するので残す・EXP-039)
   const todayEvents = events.filter(isToday);
   const upcomingEvents = events.filter((e) => !isToday(e));
 
@@ -693,6 +725,32 @@ function AppContent() {
           )}
         </header>
 
+        {/* 目的ごとのチャット (EXP-043)。プロジェクトを選んでいなければ「プロジェクト作成」だけ */}
+        <div role="tablist" aria-label="チャット" className="flex flex-wrap gap-1 border-b bg-white px-4 py-2">
+          {workspace.selected && COACH_THREADS.map((t) => (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              id={`chat-tab-${t}`}
+              aria-selected={!setupDraft && chatThread === t}
+              onClick={() => { if (setupDraft) exitSetup(); setChatThread(t); }}
+              className={`px-3 py-1.5 rounded-lg border text-sm font-bold focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${!setupDraft && chatThread === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'}`}
+            >
+              <span aria-hidden="true">{THREAD_LABEL[t].icon}</span> {THREAD_LABEL[t].label}
+            </button>
+          ))}
+          <button
+            type="button"
+            role="tab"
+            id="chat-tab-setup"
+            aria-selected={!!setupDraft}
+            onClick={() => { if (!setupDraft) handleChoose({ id: 'new_project', label: '新しいプロジェクト' } as Choice); }}
+            className={`px-3 py-1.5 rounded-lg border text-sm font-bold focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${setupDraft ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'}`}
+          >
+            <span aria-hidden="true">🆕</span> プロジェクト作成
+          </button>
+        </div>
         <main tabIndex={0} aria-label="会話" className="flex-1 overflow-y-auto p-4 space-y-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500">
            {workspace.selected && (
              <p className="text-xs text-gray-600"><span aria-hidden="true">💬</span> 『{workspace.selected.name}』の PDCA (記録を見て答えます)</p>
@@ -822,8 +880,9 @@ function AppContent() {
             onCancel={exitSetup}
           />
         ) : (<>
+        {/* 右の列は役割で 3 つ (EXP-041): プロジェクト = タスクを決める・スケジュール = 予定に並べる / 用事を足す・手帳 = 振り返る */}
         <div role="tablist" aria-label="右の列" className="flex gap-2">
-          {([['projects', '📁', 'プロジェクト'], ['calendar', '📅', '予定']] as const).map(([tab, icon, label]) => (
+          {([['projects', '📁', 'プロジェクト'], ['schedule', '📅', 'スケジュール'], ['techo', '📒', '手帳']] as const).map(([tab, icon, label]) => (
             <button
               key={tab}
               type="button"
@@ -850,9 +909,9 @@ function AppContent() {
             </div>
             {workspace.selected && (
               <div className="flex flex-col gap-4">
-                {/* 選んだプロジェクトの Plan / ノートの切り替え (EXP-009)。既定は Plan */}
+                {/* 選んだプロジェクトの中: タスク (既定)・Plan・ノート (EXP-041) */}
                 <div role="tablist" aria-label="プロジェクトの中身" className="flex gap-2">
-                  {([['today', '📒', '手帳'], ['plan', '📝', 'Plan'], ['notes', '📓', 'ノート']] as const).map(([tab, icon, label]) => (
+                  {([['tasks', '✅', 'タスク'], ['plan', '📝', 'Plan']] as const).map(([tab, icon, label]) => (
                     <button
                       key={tab}
                       type="button"
@@ -867,53 +926,42 @@ function AppContent() {
                     </button>
                   ))}
                 </div>
-                {projectTab === 'today' ? (
-                  <div role="tabpanel" id="project-panel-today" aria-labelledby="project-tab-today" className="flex flex-col gap-6">
-                    <TechoView
-                      today={daily.today}
-                      mode={techo.mode}
-                      date={techoDate}
-                      items={it.items}
-                      logs={daily.logs}
-                      notes={workspace.notes}
-                      onChange={(mode, date) => setTecho({ mode, date: date === daily.today ? null : date })}
-                      renderDay={(date) => (
-                    <div className="flex flex-col gap-6">
+                {projectTab === 'tasks' ? (
+                  <div role="tabpanel" id="project-panel-tasks" aria-labelledby="project-tab-tasks" className="flex flex-col gap-6">
+                    {/* PDCA の P: 今日のタスク (ToDo) を決めて、始める・完了・判定。時刻を入れるとスケジュールに出る (EXP-041) */}
                     <DailyView
-                      key={`${workspace.selectedId ?? ''}:${date}`}
+                      key={`${workspace.selectedId ?? ''}:tasks`}
+                      parts="todos"
                       today={daily.today}
-                      date={date}
                       items={it.items}
                       logs={daily.logs}
                       problem={daily.problem}
                       saving={daily.saving}
-                      saved={daily.savedDay === date}
+                      saved={false}
                       onUpdateItem={(id, p) => void it.update(id, p)}
-                      onSave={(d) => void daily.save(date, d)}
-                      onAsk={(text) => { void handleSendMessage(text); setTimeout(() => inputRef.current?.focus(), 0); }}
+                      onSave={() => {}}
+                      onAsk={(text) => sendTo('todo', text)}
                       onComplete={(item) => {
-                        // 実行 (判定待ち) にしてから、会話で判定を頼む (EXP-034)
-                        void it.update(item.id, { status: 'done' }).then(() => handleSendMessage(completeMessage(item.title)));
-                        setTimeout(() => inputRef.current?.focus(), 0);
+                        // 実行 (判定待ち) にしてから、✅ ToDo のチャットで判定を頼む (EXP-034・043)
+                        void it.update(item.id, { status: 'done' }).then(() => sendTo('todo', completeMessage(item.title)));
                       }}
-                      eventLabels={Object.fromEntries(itemEvents.events.map((e) => [e.itemId, eventLabel(e)]))}
                     />
-                    {date === daily.today && (
-                    <TodoScheduleView
-                      today={daily.today}
-                      items={it.items}
-                      events={itemEvents.events}
-                      busyId={itemEvents.busyId}
-                      problem={itemEvents.problem}
-                      done={itemEvents.done}
-                      onSchedule={(item, start, end) => void itemEvents.schedule(item, start, end)}
-                    />
+                    {it.items.some((t) => t.level === 'todo' && t.dueDate === daily.today) && (
+                      <section aria-labelledby="slot-edit-today" className="flex flex-col gap-2">
+                        <h3 id="slot-edit-today" className="text-base font-bold text-gray-800"><span aria-hidden="true">🕘</span> 今日のタスクの時刻 (スケジュールに出ます)</h3>
+                        <ul className="flex flex-col gap-2">
+                          {it.items.filter((t) => t.level === 'todo' && t.dueDate === daily.today).map((t) => (
+                            <li key={t.id} className="flex flex-col gap-1">
+                              <span className="min-w-0 break-words text-sm text-gray-900">{t.title}</span>
+                              <SlotEditor key={`${t.id}:${slots.slots.find((x) => x.itemId === t.id)?.start ?? ''}`} item={t} slot={slots.slots.find((x) => x.itemId === t.id)} onSave={(id, s, e) => void slots.save(id, s, e)} />
+                            </li>
+                          ))}
+                        </ul>
+                        <div role="status">{slots.problem && <p className="p-2 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-sm">{slots.problem}</p>}</div>
+                      </section>
                     )}
-                    </div>
-                      )}
-                    />
                   </div>
-                ) : projectTab === 'plan' ? (
+                ) : (
                   <div role="tabpanel" id="project-panel-plan" aria-labelledby="project-tab-plan" className="flex flex-col gap-6">
                     <section aria-labelledby="plan-tree-heading" className="flex flex-col gap-3">
                       <h3 id="plan-tree-heading" className="text-base font-bold text-gray-800"><span aria-hidden="true">🌳</span> 階層 (KGI → KPI → KDI → ToDo)</h3>
@@ -944,15 +992,6 @@ function AppContent() {
                       />
                     </section>
                   </div>
-                ) : (
-                  <div role="tabpanel" id="project-panel-notes" aria-labelledby="project-tab-notes">
-                    <NotesPanel
-                      project={workspace.selected}
-                      notes={workspace.notes}
-                      onCreate={(input) => void workspace.createNote(input)}
-                      onDelete={(id) => void workspace.deleteNote(id)}
-                    />
-                  </div>
                 )}
               </div>
             )}
@@ -963,20 +1002,62 @@ function AppContent() {
               onCreate={(input) => void workspace.createProject(input)}
             />
           </div>
+        ) : sideTab === 'schedule' ? (
+          <div role="tabpanel" id="side-panel-schedule" aria-labelledby="side-tab-schedule" className="flex flex-col gap-6">
+            {/* アプリ内のカレンダーとタイムスケジュール (EXP-039)・今日の仕事や用事を足す (EXP-040・041)。Google カレンダーは後で実装する */}
+            <AppCalendar today={daily.today} />
+          </div>
         ) : (
-          <div role="tabpanel" id="side-panel-calendar" aria-labelledby="side-tab-calendar" className="flex flex-col gap-6">
-        <div>
-          <h2 className="text-lg font-bold mb-3 text-blue-700"><span aria-hidden="true">📅</span> 今日の予定</h2>
-          <div className="space-y-3">
-            {todayEvents.map(e => <EventCard key={e.id || crypto.randomUUID()} event={e} isToday={true} />)}
-          </div>
-        </div>
-        <div>
-          <h2 className="text-lg font-bold mb-3 text-gray-600"><span aria-hidden="true">🗓️</span> 今後の予定</h2>
-          <div className="space-y-3">
-            {upcomingEvents.map(e => <EventCard key={e.id || crypto.randomUUID()} event={e} isToday={false} />)}
-          </div>
-        </div>
+          <div role="tabpanel" id="side-panel-techo" aria-labelledby="side-tab-techo" className="flex flex-col gap-6">
+            {!workspace.selected ? (
+              <p className="text-sm text-gray-700">「📁 プロジェクト」でプロジェクトを選ぶと、そのプロジェクトの手帳が開きます。</p>
+            ) : (
+              <>
+                <p className="text-sm text-gray-700"><span aria-hidden="true">📁</span> {workspace.selected.name} の手帳 (振り返り)</p>
+                <TechoView
+                  today={daily.today}
+                  mode={techo.mode}
+                  date={techoDate}
+                  items={it.items}
+                  logs={daily.logs}
+                  notes={workspace.notes}
+                  tasks={tasks.tasks}
+                  onChange={(mode, date) => setTecho({ mode, date: date === daily.today ? null : date })}
+                  beforeStats={
+                    // 仮説と検証結果のノート (EXP-042)。振り返りと同じ場所で書いて見返す
+                    <section aria-labelledby="techo-notes-heading" className="flex flex-col gap-2 rounded-lg border border-gray-200 bg-white p-3">
+                      <h3 id="techo-notes-heading" className="text-base font-bold text-gray-800"><span aria-hidden="true">📓</span> ノート (仮説・検証結果)</h3>
+                      <NotesPanel
+                        project={workspace.selected}
+                        notes={workspace.notes}
+                        presets={TECHO_NOTE_KINDS}
+                        defaultKind={HYPOTHESIS_NOTE}
+                        filters={[HYPOTHESIS_NOTE, RESULT_NOTE]}
+                        onCreate={(input) => void workspace.createNote(input)}
+                        onDelete={(id) => void workspace.deleteNote(id)}
+                      />
+                    </section>
+                  }
+                  renderDay={(date) => (
+                    // 手帳の日のページは振り返りだけ (EXP-041)。ToDo は見るだけ
+                    <DailyView
+                      key={`${workspace.selectedId ?? ''}:${date}`}
+                      parts="reflection"
+                      today={daily.today}
+                      date={date}
+                      items={it.items}
+                      logs={daily.logs}
+                      problem={daily.problem}
+                      saving={daily.saving}
+                      saved={daily.savedDay === date}
+                      onUpdateItem={(id, p) => void it.update(id, p)}
+                      onSave={(d) => void daily.save(date, d)}
+                      onAsk={(text) => sendTo('todo', text)}
+                    />
+                  )}
+                />
+              </>
+            )}
           </div>
         )}
         </>)}

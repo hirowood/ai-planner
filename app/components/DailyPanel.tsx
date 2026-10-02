@@ -146,6 +146,8 @@ type ViewProps = {
   eventLabels?: Record<string, string>;
   /** 手帳で開いている日 (EXP-036)。無ければ今日。 */
   date?: string;
+  /** 出す部分 (EXP-041): todos = タスク (プロジェクトの欄)・reflection = 振り返り (手帳の欄)・無ければ両方 */
+  parts?: 'todos' | 'reflection';
 };
 
 /** ToDo の行の「▶ 始める」「✓ 完了」「判定待ち」(EXP-034)。 */
@@ -180,6 +182,27 @@ function TodoAction({ item, onUpdateItem, onAsk, onComplete }: {
   return null;
 }
 
+/** 手帳の振り返りで見る、その日の ToDo の結果 (見るだけ・ボタンはプロジェクトのタスクに・EXP-041)。 */
+function TodoResults({ todos }: { todos: PlanItem[] }) {
+  return (
+    <section aria-labelledby="todo-results-heading" className="flex flex-col gap-2">
+      <h3 id="todo-results-heading" className="text-base font-bold text-gray-800"><span aria-hidden="true">✅</span> この日の ToDo の結果</h3>
+      {todos.length === 0 ? (
+        <p className="text-sm text-gray-700">この日が期日の ToDo はありません。</p>
+      ) : (
+        <ul className="flex flex-col gap-1 text-sm">
+          {todos.map((t) => (
+            <li key={t.id} className="min-w-0 break-words">
+              <span className="text-gray-600">[{STATUS_LABEL[t.status]}]</span> {t.title}
+              {t.target && <span className="text-gray-600"> (判定基準: {t.target})</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 /** 書き直せない日 (8 日以上前・先の日) の 1 日の記録を見るだけで出す (EXP-036)。 */
 function ReadOnlyLog({ log, future }: { log: DailyLog | undefined; future: boolean }) {
   if (future) return <p className="text-sm text-gray-700">まだ先の日です。その日になったら振り返りを書けます。</p>;
@@ -194,7 +217,9 @@ function ReadOnlyLog({ log, future }: { log: DailyLog | undefined; future: boole
 }
 
 /** 画面だけ (状態は外から)。描画のテストはこれを使う。 */
-export function DailyView({ today, items, logs, problem, saving, saved, onUpdateItem, onSave, onAsk, onComplete, eventLabels = {}, date }: ViewProps) {
+export function DailyView({ today, items, logs, problem, saving, saved, onUpdateItem, onSave, onAsk, onComplete, eventLabels = {}, date, parts }: ViewProps) {
+  const showTodos = parts !== 'reflection';
+  const showReflection = parts !== 'todos';
   // 手帳で開いている日 (EXP-036)。今日のときだけ始める・完了・会話のボタンを出す
   const day = date ?? today;
   const isToday = day === today;
@@ -216,6 +241,8 @@ export function DailyView({ today, items, logs, problem, saving, saved, onUpdate
 
   return (
     <div className="flex flex-col gap-6">
+      {!showTodos && <TodoResults todos={todos} />}
+      {showTodos && (
       <section aria-labelledby="today-todos-heading" className="flex flex-col gap-3">
         <h3 id="today-todos-heading" className="text-base font-bold text-gray-800">
           <span aria-hidden="true">☀️</span> {isToday ? `今日の ToDo (${today})` : `この日の ToDo (${day})`}
@@ -260,6 +287,8 @@ export function DailyView({ today, items, logs, problem, saving, saved, onUpdate
           <p className="text-sm text-amber-900">今日の ToDo が {todos.length} つあります。{TODAY_TODO_TARGET} つほどに絞ると回しやすいです。</p>
         )}
       </section>
+      )}
+      {showReflection && (<>
 
       <section aria-labelledby="today-check-heading" className="flex flex-col gap-3">
         <h3 id="today-check-heading" className="text-base font-bold text-gray-800">
@@ -357,6 +386,7 @@ export function DailyView({ today, items, logs, problem, saving, saved, onUpdate
           </ul>
         )}
       </section>
+      </>)}
     </div>
   );
 }

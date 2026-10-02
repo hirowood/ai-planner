@@ -4,9 +4,9 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "../auth/[...nextauth]/route";
 import { startPerf } from "../../../lib/perf";
 import { quotaBody, quotaKind } from "../../../lib/quota";
-import { GEMINI_MODEL } from "../../../lib/model";
+import { GEMINI_MODEL, modelFor } from "../../../lib/model";
 import { parseChoices } from "../../../lib/coach-choices";
-import { OVERLOADED_MESSAGE, isOverloaded, withGeminiRetry } from "../../../lib/gemini-retry";
+import { OVERLOADED_MESSAGE, isOverloaded, withGeminiRetry, withModelFallback } from "../../../lib/gemini-retry";
 import { neutralize } from "../../../lib/coach-context";
 import {
   SMART_FIELDS,
@@ -116,6 +116,7 @@ ${past}
 3. ユーザーが言っていない値で欄を埋めないでください。記録に無い数字を作らないでください。
 4. 返答を質問で終えるときは、答えの候補を 2〜4 個 "choices" に入れてください (各 20 字まで)。質問で終えないときは []。
 5. 温かく丁寧に、短く (300 字程度まで)。
+8. 直前の自分の質問と同じ質問をしないでください。ユーザーが答えたら、確かめ直さずに次の欄へ進んでください (EXP-044)。
 
 ### 出力
 次の形の JSON だけを出力してください。
@@ -191,11 +192,14 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
     }
   }
   try {
-    const model = genAI.getGenerativeModel({
-      model: GEMINI_MODEL,
-      generationConfig: { responseMimeType: "application/json", maxOutputTokens: 1024 },
-    });
-    const result = await perf.time("gemini_ms", () => withGeminiRetry(() => model.generateContent(buildPrompt(draft, history, message, today, kpis, past))));
+    // 作る会話は上位のモデル (EXP-044)。無い / 枠切れなら今のモデルで 1 回だけ
+    const prompt = buildPrompt(draft, history, message, today, kpis, past);
+    const generate = (m: string) =>
+      withGeminiRetry(() =>
+        genAI.getGenerativeModel({ model: m, generationConfig: { responseMimeType: "application/json", maxOutputTokens: 1024 } }).generateContent(prompt),
+      );
+    const { result, fellBack } = await perf.time("gemini_ms", () => withModelFallback(generate, modelFor("setup"), GEMINI_MODEL));
+    perf.set({ model_fallback: fellBack });
     const out = parseModelOutput(result.response.text());
     const merged = out ? mergeSmart(draft, out.draft) : draft;
     const mergedKpis = out ? mergeKpiDrafts(kpis, out.kpis, merged.timeBound, today) : kpis;

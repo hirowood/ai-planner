@@ -3,8 +3,9 @@
 
 import { isUuid } from "./projects";
 
-// Plan の会話と通常のチャットを分けて保存する
-export type Thread = "plan" | "chat";
+// Plan の会話と通常のチャットを分けて保存する。chat = 壁打ち・相談・kgi / kpi / kdi / todo は目的ごとの会話 (EXP-043)
+export type Thread = "plan" | "chat" | "kgi" | "kpi" | "kdi" | "todo";
+const THREADS: string[] = ["plan", "chat", "kgi", "kpi", "kdi", "todo"];
 export type StoredMessage = { id: string; role: "user" | "assistant"; content: string; createdAt: string };
 export type MessagesInput = { projectId: string; thread: Thread; messages: { role: "user" | "assistant"; content: string }[] };
 
@@ -20,7 +21,7 @@ function asRecord(x: unknown): Record<string, unknown> | null {
 }
 
 export function isThread(x: unknown): x is Thread {
-  return x === "plan" || x === "chat";
+  return typeof x === "string" && THREADS.includes(x);
 }
 
 function isRole(x: unknown): x is "user" | "assistant" {
