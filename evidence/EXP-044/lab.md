@@ -32,6 +32,15 @@ Date: 2026-10-02 / 事前登録: `request.md` (変更より前に commit cf194fa
 - テスト: `lib/model-deep.test.ts` に 503 (status だけ・文だけ) を足した。替える条件から 503 を外すと赤
 - `DEEP_MODEL_VERIFIED` は false のまま (200 をまだ確かめていない)
 
+## 上位のモデルを使い始めた (2026-10-02・事前登録どおりの手順)
+
+- 本人が再度 `scripts/probe-model.mjs` を実行: `gemini-3.5-flash: ok (200)`・`gemini-3.5-flash-lite: ok (200)`
+- `DEEP_MODEL_VERIFIED = true`。壁打ち・KGI・KPI・作成は gemini-3.5-flash、KDI・ToDo は gemini-3.5-flash-lite
+- テスト: 会話ごとのモデル (5 つの会話)・上位が 503 を続けたら今のモデルで 200 と `model_fallback: true`。false に戻すと 4 件が赤
+- `npm test` 865 件合格・`tsc` 0・`next build` 成功
+- EXP-016 の「モデルは GEMINI_MODEL」(`app/api/coach/route.test.ts`) を「既定の壁打ちは上位」に置き換えた
+- 本人の判定で見ること: 遅くなった・上限にすぐ当たる (巻き戻しの条件)。`[perf]` の `gemini_ms` と `model_fallback` の割合
+
 ## 置き換えたテスト
 
 - EXP-022 の返答の形「③次の一歩の問い」を「③提案を 1 つか質問を 1 つ」に (`lib/coach-persona.test.ts`)

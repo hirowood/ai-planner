@@ -64,7 +64,7 @@ vi.mock("../../../lib/db", () => ({
 }));
 
 import { POST } from "./route";
-import { GEMINI_MODEL } from "../../../lib/model";
+import { GEMINI_MODEL, GEMINI_MODEL_DEEP } from "../../../lib/model";
 
 const ALLOWED = [
   "calendar_ms", "first_chunk_ms", "gemini_ms", "history_len", "plan_proposed", "question_count", "route", "status",
@@ -332,11 +332,13 @@ describe("POST /api/coach — 200 と記録 (EXP-016 L2)", () => {
     expect(prompt.split("</Records>").length - 1).toBeLessThanOrEqual(1);
   });
 
-  it("モデルは GEMINI_MODEL・JSON で返させる (EXP-016 L2)", async () => {
+  // EXP-044 で、既定の会話 (壁打ち・相談) は上位のモデルに (EXP-016 の「GEMINI_MODEL」を置き換え)
+  it("モデルは会話ごと (既定の壁打ちは上位)・JSON で返させる (EXP-016 L2・EXP-044)", async () => {
     signedInWithEmail();
     ownProjectWithRecords();
     await POST(post(validBody));
-    expect(geminiState.lastModel).toBe(GEMINI_MODEL);
+    expect(geminiState.lastModel).toBe(GEMINI_MODEL_DEEP);
+    expect(GEMINI_MODEL_DEEP).not.toBe(GEMINI_MODEL);
     expect(geminiState.lastConfig).toMatchObject({ responseMimeType: "application/json" });
   });
 

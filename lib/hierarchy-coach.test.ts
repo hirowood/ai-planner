@@ -3,7 +3,7 @@ import { authState } from "../test/mocks/next-auth";
 import { geminiState } from "../test/mocks/generative-ai";
 import { capturePerf } from "../test/mocks/fetch";
 import { todayJst } from "./smart";
-import { GEMINI_MODEL } from "./model";
+import { GEMINI_MODEL, GEMINI_MODEL_DEEP } from "./model";
 
 // /api/coach が階層を読み、次の段の候補を聞き、決まった項目を次の段の親の下に足す (EXP-019 L3)
 const db = vi.hoisted(() => {
@@ -631,11 +631,21 @@ describe("POST /api/coach — 目的ごとのチャット (EXP-043・044)", () =
     expect(perf.parsed().find((l) => l.route === "api/coach")).toMatchObject({ question_repeat: false });
   });
 
-  it("上位のモデルが確かめられるまでは、どの会話も今のモデル", async () => {
+  it("壁打ち・KGI・KPI は上位のモデル・KDI・ToDo は今のモデル (EXP-044)", async () => {
     geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [] });
-    for (const thread of ["chat", "kgi", "kpi", "kdi", "todo"]) {
+    for (const [thread, model] of [["chat", GEMINI_MODEL_DEEP], ["kgi", GEMINI_MODEL_DEEP], ["kpi", GEMINI_MODEL_DEEP], ["kdi", GEMINI_MODEL], ["todo", GEMINI_MODEL]]) {
       await call(thread);
-      expect(geminiState.lastModel).toBe(GEMINI_MODEL);
+      expect(geminiState.lastModel).toBe(model);
     }
+  });
+
+  it("上位が混んでいたら (503 が続く) 今のモデルで答え、model_fallback が true", async () => {
+    geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [] });
+    geminiState.failWith = Object.assign(new Error("[503 Service Unavailable]"), { status: 503 });
+    geminiState.failTimes = 2;
+    const res = await call("chat");
+    expect(res.status).toBe(200);
+    expect(geminiState.lastModel).toBe(GEMINI_MODEL);
+    expect(perf.parsed().find((l) => l.route === "api/coach")).toMatchObject({ model_fallback: true });
   });
 });

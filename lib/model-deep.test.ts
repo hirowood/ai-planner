@@ -11,10 +11,15 @@ describe("会話によってモデルを分ける (EXP-044)", () => {
     for (const u of ["kdi", "todo"] as const) expect(modelFor(u, true)).toBe(GEMINI_MODEL);
   });
 
-  it("確かめるまでは、どれも今のモデル (既定は未確認)", () => {
-    expect(DEEP_MODEL_VERIFIED).toBe(false);
-    for (const u of ["chat", "kgi", "kpi", "kdi", "todo", "setup"] as const) expect(modelFor(u)).toBe(GEMINI_MODEL);
+  it("確かめていなければ、どれも今のモデル", () => {
+    for (const u of ["chat", "kgi", "kpi", "kdi", "todo", "setup"] as const) expect(modelFor(u, false)).toBe(GEMINI_MODEL);
     expect(GEMINI_MODEL_DEEP).not.toBe(GEMINI_MODEL);
+  });
+
+  it("上位は 200 を確かめたので使う (2026-10-02 の probe)", () => {
+    expect(DEEP_MODEL_VERIFIED).toBe(true);
+    expect(modelFor("chat")).toBe(GEMINI_MODEL_DEEP);
+    expect(modelFor("todo")).toBe(GEMINI_MODEL);
   });
 });
 

@@ -8,9 +8,9 @@ export const GEMINI_MODEL = "gemini-3.5-flash-lite";
 
 // --- チャットによってモデルを分ける (EXP-044) ---
 // 考えを深める会話 (壁打ち・KGI・KPI・作成) は上位のモデル、回数の多い KDI・ToDo は今のモデル。
-// 上位のモデルは実際に 1 回呼んで 200 を確かめてから使う (scripts/probe-model.mjs)。確かめるまでは false のまま。
+// 上位のモデルは実際に 1 回呼んで 200 を確かめてから使う (scripts/probe-model.mjs)。2026-10-02 に本人の実行で 200 を確かめた。
 export const GEMINI_MODEL_DEEP = "gemini-3.5-flash";
-export const DEEP_MODEL_VERIFIED = false;
+export const DEEP_MODEL_VERIFIED = true;
 
 export type ModelUse = "chat" | "kgi" | "kpi" | "kdi" | "todo" | "setup";
 const DEEP_USES: ModelUse[] = ["chat", "kgi", "kpi", "setup"];
