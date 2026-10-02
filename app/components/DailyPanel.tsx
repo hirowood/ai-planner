@@ -117,10 +117,12 @@ type ViewProps = {
   onUpdateItem(id: string, patch: ItemPatch): void;
   onSave(d: { mark: DailyMark; goods: string[]; tomorrow: string }): void;
   onAsk(text: string): void;
+  /** ToDo の id → 予定の印 (EXP-030)。 */
+  eventLabels?: Record<string, string>;
 };
 
 /** 画面だけ (状態は外から)。描画のテストはこれを使う。 */
-export function DailyView({ today, items, logs, problem, saving, saved, onUpdateItem, onSave, onAsk }: ViewProps) {
+export function DailyView({ today, items, logs, problem, saving, saved, onUpdateItem, onSave, onAsk, eventLabels = {} }: ViewProps) {
   const todayLog = logs.find((l) => l.day === today);
   const [draft, setDraft] = useState<Draft>(() => draftFrom(todayLog));
   const [loadedFor, setLoadedFor] = useState<string | null>(todayLog ? `${today}:${todayLog.updatedAt}` : null);
@@ -151,7 +153,10 @@ export function DailyView({ today, items, logs, problem, saving, saved, onUpdate
           <ul className="flex flex-col gap-2">
             {todos.map((t) => (
               <li key={t.id} className="flex items-center gap-2">
-                <span className="flex-1 text-sm text-gray-900">{t.title}</span>
+                <span className="flex-1 text-sm text-gray-900">
+                  {t.title}
+                  {eventLabels[t.id] && <span className="ml-2 text-green-800">{eventLabels[t.id]}</span>}
+                </span>
                 <select
                   aria-label={`『${t.title}』の状態`}
                   value={t.status}

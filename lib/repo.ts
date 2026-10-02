@@ -5,6 +5,7 @@ import type { Sql } from "./db";
 import type { Category, Note, NoteInput, NoteKind, Project, ProjectInput } from "./projects";
 import { EMPTY_PLAN, parsePlanDraft, type PlanDraft } from "./pdca-plan";
 import type { PastProject } from "./setup-start";
+import type { ItemEvent } from "./todo-event";
 import { DAILY_LIMIT, type DailyInput, type DailyLog, type DailyMark } from "./daily";
 import { HISTORY_LIMIT, type MessagesInput, type StoredMessage, type Thread } from "./messages";
 import {
@@ -513,4 +514,77 @@ export async function upsertDailyLog(sql: Sql, owner: string, input: DailyInput)
     returning project_id, day, mark, goods, tomorrow, updated_at
   `;
   return rows.length > 0 ? toDailyLog(rows[0]) : null;
+}
+
+// --- ToDo の予定 (EXP-030) ---
+
+export const EVENT_PENDING = "pending";
+/** 予定の枠を取れなかった理由。 */
+export const SCHEDULE_NOT_TODO = "not_todo" as const;
+export const SCHEDULE_EXISTS = "exists" as const;
+
+/** 持ち主の項目を 1 つ読む (無い・他人は null)。 */
+export async function getItem(sql: Sql, owner: string, id: string): Promise<PlanItem | null> {
+  const rows = await sql`
+    select id, project_id, parent_id, level, title, target, due_date, status, created_at, updated_at from plan_items
+    where id = ${id} and owner = ${owner}
+  `;
+  return rows.length > 0 ? toItem(rows[0]) : null;
+}
+
+/**
+ * 予定を作る前に枠を取る (同じ ToDo に 2 つ作らない)。持ち主の期日つき ToDo のときだけ取れる。
+ * 取れたら true・もう予定がある → SCHEDULE_EXISTS・ToDo でない / 期日が無い → SCHEDULE_NOT_TODO・無い / 他人 → null。
+ */
+export async function claimItemEvent(
+  sql: Sql,
+  owner: string,
+  itemId: string,
+  start: string,
+  end: string,
+): Promise<true | null | typeof SCHEDULE_NOT_TODO | typeof SCHEDULE_EXISTS> {
+  const rows = await sql`
+    insert into item_events (item_id, owner, event_id, start_time, end_time)
+    select ${itemId}, ${owner}, ${EVENT_PENDING}, ${start}, ${end}
+    where exists (
+      select 1 from plan_items
+      where id = ${itemId} and owner = ${owner} and level = 'todo' and due_date is not null
+    )
+    on conflict (item_id) do update
+      set start_time = excluded.start_time, end_time = excluded.end_time, created_at = now()
+      -- 作る途中で止まった枠 (2 分より古い pending) だけは取り直せる。作り終えた予定は上書きしない
+      where item_events.event_id = ${EVENT_PENDING} and item_events.created_at < now() - interval '2 minutes'
+    returning item_id
+  `;
+  if (rows.length > 0) return true;
+  const item = await getItem(sql, owner, itemId);
+  if (!item) return null;
+  if (item.level !== "todo" || item.dueDate === "") return SCHEDULE_NOT_TODO;
+  return SCHEDULE_EXISTS;
+}
+
+/** Google に作れたら event_id を入れる。 */
+export async function confirmItemEvent(sql: Sql, owner: string, itemId: string, eventId: string): Promise<void> {
+  await sql`
+    update item_events set event_id = ${eventId}
+    where item_id = ${itemId} and owner = ${owner} and event_id = ${EVENT_PENDING}
+  `;
+}
+
+/** Google で作れなかったら取った枠を返す。 */
+export async function releaseItemEvent(sql: Sql, owner: string, itemId: string): Promise<void> {
+  await sql`
+    delete from item_events
+    where item_id = ${itemId} and owner = ${owner} and event_id = ${EVENT_PENDING}
+  `;
+}
+
+/** 持ち主のプロジェクトの予定の一覧 (作り終えたものだけ)。 */
+export async function listItemEvents(sql: Sql, owner: string, projectId: string): Promise<ItemEvent[]> {
+  const rows = await sql`
+    select e.item_id, e.start_time, e.end_time from item_events e
+    join plan_items i on i.id = e.item_id
+    where e.owner = ${owner} and i.owner = ${owner} and i.project_id = ${projectId} and e.event_id <> ${EVENT_PENDING}
+  `;
+  return rows.map((r: Row) => ({ itemId: String(r.item_id), start: String(r.start_time ?? ""), end: String(r.end_time ?? "") }));
 }

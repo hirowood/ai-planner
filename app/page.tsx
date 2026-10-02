@@ -13,6 +13,8 @@ import { PlanFields, usePlanStore } from "./components/PlanFields";
 import { PlanTree, useItems } from "./components/PlanTree";
 import { itemsAddedNotice } from "../lib/hierarchy-step";
 import { DailyView, useDaily } from "./components/DailyPanel";
+import { TodoScheduleView, useItemEvents } from "./components/TodoSchedule";
+import { eventLabel } from "../lib/todo-event";
 import { parsePlanDraft, PLAN_FIELDS, PLAN_FIELD_LABEL, type PlanDraft } from "../lib/pdca-plan";
 import { greetingFor, startMessage, startChoices, type Choice } from "../lib/greeting";
 import { StartChoices } from "./components/StartChoices";
@@ -124,6 +126,7 @@ function AppContent() {
   // 選んだプロジェクトの階層 (KGI → KPI → KDI → ToDo)
   const it = useItems(workspace.selectedId);
   const daily = useDaily(workspace.selectedId);
+  const itemEvents = useItemEvents(workspace.selectedId);
   // 階層の KGI (固定) を Plan の要点に読み取り専用で出す (EXP-018)
   const kgiItem = it.items.find((i) => i.level === 'kgi');
   const kgiText = kgiItem
@@ -819,7 +822,7 @@ function AppContent() {
                   ))}
                 </div>
                 {projectTab === 'today' ? (
-                  <div role="tabpanel" id="project-panel-today" aria-labelledby="project-tab-today">
+                  <div role="tabpanel" id="project-panel-today" aria-labelledby="project-tab-today" className="flex flex-col gap-6">
                     <DailyView
                       key={workspace.selected.id}
                       today={daily.today}
@@ -831,6 +834,16 @@ function AppContent() {
                       onUpdateItem={(id, p) => void it.update(id, p)}
                       onSave={(d) => void daily.save(daily.today, d)}
                       onAsk={(text) => { void handleSendMessage(text); setTimeout(() => inputRef.current?.focus(), 0); }}
+                      eventLabels={Object.fromEntries(itemEvents.events.map((e) => [e.itemId, eventLabel(e)]))}
+                    />
+                    <TodoScheduleView
+                      today={daily.today}
+                      items={it.items}
+                      events={itemEvents.events}
+                      busyId={itemEvents.busyId}
+                      problem={itemEvents.problem}
+                      done={itemEvents.done}
+                      onSchedule={(item, start, end) => void itemEvents.schedule(item, start, end)}
                     />
                   </div>
                 ) : projectTab === 'plan' ? (

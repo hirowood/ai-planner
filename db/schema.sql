@@ -85,3 +85,13 @@ create table if not exists daily_logs (
   updated_at timestamptz not null default now(),
   unique (owner, project_id, day)
 );
+
+-- EXP-030: ToDo を予定 (Google カレンダー) に入れた記録。1 つの ToDo に予定は 1 つ。event_id は作る間 'pending'
+create table if not exists item_events (
+  item_id uuid primary key references plan_items (id) on delete cascade,
+  owner text not null,
+  event_id text not null,
+  start_time text not null default '',
+  end_time text not null default '',
+  created_at timestamptz not null default now()
+);
