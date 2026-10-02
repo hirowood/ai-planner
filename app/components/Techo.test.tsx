@@ -30,7 +30,10 @@ describe("📒 手帳 (EXP-036 L4)", () => {
   it("週は 7 日の一覧・今日に印・日付のボタン", () => {
     const html = render("week", TODAY, [todo(1, TODAY, "succeeded"), todo(2, "2026-10-03")], [{ projectId: P, day: TODAY, mark: "good", goods: [], tomorrow: "", updatedAt: "" }]);
     expect((html.match(/のページを開く/g) ?? []).length).toBe(7);
-    expect(html).toContain('aria-label="10/2 (金) のページを開く (今日)" aria-current="date"');
+    // ボタンの名前は中身 (aria-label で上書きしない)・今日は見える文字でも示す (a11y レビュー)
+    expect(html).not.toMatch(/<button[^>]*aria-label="[^"]*のページを開く/);
+    expect(html).toMatch(/<button type="button" aria-current="date"[^>]*>/);
+    expect(html).toContain(">今日</span>");
     expect(html).toContain("ToDo 1/1");
     expect(html).toContain("[成功]</span> ToDo 1");
     expect(html).toContain("〇 できた");
@@ -42,6 +45,10 @@ describe("📒 手帳 (EXP-036 L4)", () => {
     for (const w of ["月", "火", "水", "木", "金", "土", "日"]) expect(html).toContain(`<th scope="col" class="text-xs font-bold text-gray-700">${w}</th>`);
     expect((html.match(/のページを開く/g) ?? []).length).toBe(35);
     expect(html).toContain("2026年10月");
+    // 読み上げは文で・見た目の数字は aria-hidden・凡例 (a11y レビュー)
+    expect(html).toContain('<span class="sr-only">10月2日 (金) 今日</span>');
+    expect(html).toContain("数は ToDo の 済み/全部・〇 できた / △ 少し / × できなかった");
+    expect(html).not.toMatch(/<span[^>]*aria-label=/);
   });
   it("日は日のページを出す・これまでのデータ欄はどの表示にもある", () => {
     const day = render("day", "2026-10-01");
@@ -54,6 +61,20 @@ describe("📒 手帳 (EXP-036 L4)", () => {
       expect(html).toContain("1 日の記録");
       expect(html).toContain("AI と決めた判定・仮説");
     }
+  });
+});
+
+describe("読み上げの文・お知らせ (a11y レビュー)", () => {
+  it("月の 1 日の文: 日付・今日・ToDo の数・記録", async () => {
+    const { monthCellText } = await import("./Techo");
+    expect(monthCellText(TODAY, TODAY, { todos: [todo(1, TODAY), todo(2, TODAY)], doneCount: 1, mark: "fair" })).toBe("10月2日 (金) 今日、ToDo 1/2 済み、記録: △ 少し");
+    expect(monthCellText("2026-10-03", TODAY, { todos: [], doneCount: 0, mark: null })).toBe("10月3日 (土)");
+  });
+  it("見出しはフォーカスを受けられ、表示の変化は status で知らせる", () => {
+    const html = render("week");
+    expect(html).toMatch(/<h3 tabindex="-1"/);
+    expect(html).not.toContain('aria-live="polite"');
+    expect(html).toContain('<p role="status" class="sr-only">週の表示: 9月28日〜10月4日</p>');
   });
 });
 

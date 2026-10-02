@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { MARK_LABEL, type DailyLog } from '../../lib/daily';
 import { STATUS_LABEL, type PlanItem } from '../../lib/plan-items';
 import {
@@ -38,17 +38,18 @@ type Props = {
 
 const md = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
 
+// 中身 (日付・数・〇△×・ToDo) がそのままボタンの名前になる。aria-label で上書きしない (a11y レビュー)
 function DayButton({ date, today, onPick, children, dim = false }: { date: string; today: string; onPick(d: string): void; children: ReactNode; dim?: boolean }) {
   const isToday = date === today;
   return (
     <button
       type="button"
       onClick={() => onPick(date)}
-      aria-label={`${md(date)} (${WEEKDAY_LABEL[weekdayIndex(date)]}) のページを開く${isToday ? ' (今日)' : ''}`}
       aria-current={isToday ? 'date' : undefined}
-      className={`w-full h-full text-left p-1.5 rounded-md border focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${isToday ? 'border-blue-600 bg-blue-50' : 'border-gray-200 bg-white hover:bg-gray-50'} ${dim ? 'text-gray-500' : 'text-gray-900'}`}
+      className={`w-full min-h-full text-left p-1.5 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 ${isToday ? 'border-2 border-blue-600 bg-blue-50' : 'border border-gray-200 bg-white hover:bg-gray-50'} ${dim ? 'text-gray-500' : 'text-gray-900'}`}
     >
       {children}
+      <span className="sr-only">のページを開く</span>
     </button>
   );
 }
@@ -63,6 +64,7 @@ function WeekView({ today, date, items, logs, onPick }: { today: string; date: s
             <DayButton date={d} today={today} onPick={onPick}>
               <span className="flex items-center gap-2 text-sm font-bold">
                 {md(d)} ({WEEKDAY_LABEL[weekdayIndex(d)]})
+                {d === today && <span className="rounded bg-blue-600 px-1.5 text-xs text-white">今日</span>}
                 {info.mark && <span className="font-normal">{MARK_LABEL[info.mark]}</span>}
                 <span className="ml-auto font-normal text-gray-600">ToDo {info.doneCount}/{info.todos.length}</span>
               </span>
@@ -103,9 +105,13 @@ function MonthView({ today, date, items, logs, onPick }: { today: string; date: 
               return (
                 <td key={d} className="align-top h-16">
                   <DayButton date={d} today={today} onPick={onPick} dim={!inMonth}>
-                    <span className="block text-xs font-bold">{Number(d.slice(8, 10))}</span>
-                    {info.todos.length > 0 && <span className="block text-xs">{info.doneCount}/{info.todos.length}</span>}
-                    {info.mark && <span className="block text-xs" aria-label={MARK_LABEL[info.mark]}>{MARK_SIGN[info.mark]}</span>}
+                    {/* 見た目は短く、読み上げは文で (a11y レビュー) */}
+                    <span aria-hidden="true">
+                      <span className="block text-xs font-bold">{Number(d.slice(8, 10))}</span>
+                      {info.todos.length > 0 && <span className="block text-xs">{info.doneCount}/{info.todos.length}</span>}
+                      {info.mark && <span className="block text-xs">{MARK_SIGN[info.mark]}</span>}
+                    </span>
+                    <span className="sr-only">{monthCellText(d, today, info)}</span>
                   </DayButton>
                 </td>
               );
@@ -115,6 +121,18 @@ function MonthView({ today, date, items, logs, onPick }: { today: string; date: 
       </tbody>
     </table>
   );
+}
+
+/** 月の表の 1 日を読み上げる文: 「10月2日 (金) 今日、ToDo 1/3 済み、記録: 〇 できた」。 */
+export function monthCellText(d: string, today: string, info: { todos: PlanItem[]; doneCount: number; mark: keyof typeof MARK_SIGN | null }): string {
+  const parts = [`${Number(d.slice(5, 7))}月${Number(d.slice(8, 10))}日 (${WEEKDAY_LABEL[weekdayIndex(d)]})${d === today ? ' 今日' : ''}`];
+  if (info.todos.length > 0) parts.push(`ToDo ${info.doneCount}/${info.todos.length} 済み`);
+  if (info.mark) parts.push(`記録: ${MARK_LABEL[info.mark]}`);
+  return parts.join('、');
+}
+
+function MonthLegend() {
+  return <p className="text-xs text-gray-600">数は ToDo の 済み/全部・〇 できた / △ 少し / × できなかった (1 日の記録)</p>;
 }
 
 function pct(r: { done: number; judged: number } | null): string {
@@ -166,6 +184,19 @@ function Stats({ items, logs, notes, today }: { items: PlanItem[]; logs: DailyLo
 
 /** 手帳の画面 (状態は外から)。 */
 export function TechoView({ today, mode, date, items, logs, notes, onChange, renderDay }: Props) {
+  // 日付を押すと押したボタンが消えるので、見出しへフォーカスを移す (a11y レビュー)
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+  const moveFocus = useRef(false);
+  useEffect(() => {
+    if (moveFocus.current) {
+      headingRef.current?.focus();
+      moveFocus.current = false;
+    }
+  }, [mode, date]);
+  const openDay = (d: string) => {
+    moveFocus.current = true;
+    onChange('day', d);
+  };
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -194,11 +225,17 @@ export function TechoView({ today, mode, date, items, logs, notes, onChange, ren
           </button>
         </div>
       </div>
-      <h3 className="text-base font-bold text-gray-800" aria-live="polite">
+      <h3 ref={headingRef} tabIndex={-1} className="text-base font-bold text-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded">
         <span aria-hidden="true">📒</span> {periodLabel(mode, date)}{mode === 'day' && date === today ? ' (今日)' : ''}
       </h3>
-      {mode === 'week' && <WeekView today={today} date={date} items={items} logs={logs} onPick={(d) => onChange('day', d)} />}
-      {mode === 'month' && <MonthView today={today} date={date} items={items} logs={logs} onPick={(d) => onChange('day', d)} />}
+      <p role="status" className="sr-only">{`${mode === 'day' ? '日' : mode === 'week' ? '週' : '月'}の表示: ${periodLabel(mode, date)}`}</p>
+      {mode === 'week' && <WeekView today={today} date={date} items={items} logs={logs} onPick={openDay} />}
+      {mode === 'month' && (
+        <>
+          <MonthView today={today} date={date} items={items} logs={logs} onPick={openDay} />
+          <MonthLegend />
+        </>
+      )}
       {mode === 'day' && renderDay(date)}
       <Stats items={items} logs={logs} notes={notes} today={today} />
     </div>
