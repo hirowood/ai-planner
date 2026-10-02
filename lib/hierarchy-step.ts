@@ -3,6 +3,7 @@
 
 import { neutralize } from "./coach-context";
 import { STATUS_LABEL, parseItemInput, type ItemInput, type ItemLevel, type PlanItem } from "./plan-items";
+import { parseSlot, type Slot } from "./slots";
 
 export type HierarchyStep =
   | { level: "kgi" }
@@ -128,11 +129,30 @@ export function parseProposedItems(x: unknown, step: HierarchyStep | null, proje
 }
 
 /** 候補 (EXP-035): AI の candidates を今の段として検査し、題と判定基準だけを返す (3 つまで)。 */
-export type Candidate = { title: string; target: string };
+// start / end は今日の ToDo の時刻 (EXP-039・無ければ "")
+export type Candidate = { title: string; target: string; start?: string; end?: string };
 export function parseCandidates(x: unknown, step: HierarchyStep | null, projectId: string): Candidate[] {
+  const slots = slotsByTitle(x);
   return parseProposedItems(x, step, projectId)
     .slice(0, PROPOSED_MAX)
-    .map((i) => ({ title: i.title, target: i.target }));
+    .map((i) => {
+      const s = step && step.level === "todo" ? slots.get(i.title) : undefined;
+      return s ? { title: i.title, target: i.target, start: s.start, end: s.end } : { title: i.title, target: i.target };
+    });
+}
+
+/** AI の items / candidates の題 → 時刻 (正しいものだけ・EXP-039)。 */
+export function slotsByTitle(x: unknown): Map<string, Slot> {
+  const out = new Map<string, Slot>();
+  if (!Array.isArray(x)) return out;
+  for (const r of x) {
+    if (typeof r !== "object" || r === null) continue;
+    const o = r as Record<string, unknown>;
+    if (typeof o.title !== "string") continue;
+    const s = parseSlot({ start: o.start ?? "", end: o.end ?? "" });
+    if (s && s !== "clear") out.set(o.title.trim(), s);
+  }
+  return out;
 }
 
 /** 画面で使う: サーバの candidates の形を検査する。 */
@@ -143,14 +163,19 @@ export function parseCandidateList(x: unknown): Candidate[] {
     if (typeof r !== "object" || r === null) continue;
     const o = r as Record<string, unknown>;
     if (typeof o.title !== "string" || !o.title.trim()) continue;
-    out.push({ title: o.title.trim(), target: typeof o.target === "string" ? o.target : "" });
+    const slot = parseSlot({ start: o.start ?? "", end: o.end ?? "" });
+    out.push({
+      title: o.title.trim(),
+      target: typeof o.target === "string" ? o.target : "",
+      ...(slot && slot !== "clear" ? { start: slot.start, end: slot.end } : {}),
+    });
   }
   return out;
 }
 
 /** 候補のボタンを押したときに送る本文 (EXP-035)。 */
 export function pickBody(projectId: string, c: Candidate): { projectId: string; message: string; pick: Candidate } {
-  return { projectId, message: `『${c.title}』にします`, pick: { title: c.title, target: c.target } };
+  return { projectId, message: `『${c.title}』にします`, pick: { title: c.title, target: c.target, ...(c.start && c.end ? { start: c.start, end: c.end } : {}) } };
 }
 
 /** 答えの候補のボタン: 次の段の候補の題を先に、ほかの候補を後に (同じ文は 1 つ・EXP-035)。 */

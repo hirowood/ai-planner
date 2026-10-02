@@ -31,6 +31,8 @@ type Props = {
   items: PlanItem[];
   logs: DailyLog[];
   notes: { kind: string; body: string; createdAt: string }[];
+  /** 日常のタスク (EXP-040)。週の表示に数を出す */
+  tasks?: { day: string }[];
   onChange(mode: TechoMode, date: string): void;
   /** 日のページ (その日の ToDo と 1 日の記録)。 */
   renderDay(date: string): ReactNode;
@@ -54,7 +56,7 @@ function DayButton({ date, today, onPick, children, dim = false }: { date: strin
   );
 }
 
-function WeekView({ today, date, items, logs, onPick }: { today: string; date: string; items: PlanItem[]; logs: DailyLog[]; onPick(d: string): void }) {
+function WeekView({ today, date, items, logs, tasks = [], onPick }: { today: string; date: string; items: PlanItem[]; logs: DailyLog[]; tasks?: { day: string }[]; onPick(d: string): void }) {
   return (
     <ul className="flex flex-col gap-2">
       {weekDates(date).map((d) => {
@@ -66,7 +68,10 @@ function WeekView({ today, date, items, logs, onPick }: { today: string; date: s
                 {md(d)} ({WEEKDAY_LABEL[weekdayIndex(d)]})
                 {d === today && <span className="rounded bg-blue-600 px-1.5 text-xs text-white">今日</span>}
                 {info.mark && <span className="font-normal">{MARK_LABEL[info.mark]}</span>}
-                <span className="ml-auto font-normal text-gray-600">ToDo {info.doneCount}/{info.todos.length}</span>
+                <span className="ml-auto font-normal text-gray-600">
+                  ToDo {info.doneCount}/{info.todos.length}
+                  {tasks.some((t) => t.day === d) && `・日常 ${tasks.filter((t) => t.day === d).length}`}
+                </span>
               </span>
               {info.todos.length > 0 && (
                 <span className="mt-1 flex flex-col gap-0.5 text-sm">
@@ -183,7 +188,7 @@ function Stats({ items, logs, notes, today }: { items: PlanItem[]; logs: DailyLo
 }
 
 /** 手帳の画面 (状態は外から)。 */
-export function TechoView({ today, mode, date, items, logs, notes, onChange, renderDay }: Props) {
+export function TechoView({ today, mode, date, items, logs, notes, tasks = [], onChange, renderDay }: Props) {
   // 日付を押すと押したボタンが消えるので、見出しへフォーカスを移す (a11y レビュー)
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const moveFocus = useRef(false);
@@ -229,7 +234,7 @@ export function TechoView({ today, mode, date, items, logs, notes, onChange, ren
         <span aria-hidden="true">📒</span> {periodLabel(mode, date)}{mode === 'day' && date === today ? ' (今日)' : ''}
       </h3>
       <p role="status" className="sr-only">{`${mode === 'day' ? '日' : mode === 'week' ? '週' : '月'}の表示: ${periodLabel(mode, date)}`}</p>
-      {mode === 'week' && <WeekView today={today} date={date} items={items} logs={logs} onPick={openDay} />}
+      {mode === 'week' && <WeekView today={today} date={date} items={items} logs={logs} tasks={tasks} onPick={openDay} />}
       {mode === 'month' && (
         <>
           <MonthView today={today} date={date} items={items} logs={logs} onPick={openDay} />

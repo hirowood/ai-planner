@@ -16,8 +16,11 @@ import { hypothesisNotice } from "../lib/progress";
 import { completeMessage, judgedNotice } from "../lib/judgement";
 import { itemChangedNotice } from "../lib/item-change";
 import { DailyView, useDaily } from "./components/DailyPanel";
-import { TodoScheduleView, useItemEvents } from "./components/TodoSchedule";
+import { useItemEvents } from "./components/TodoSchedule";
 import { TechoView } from "./components/Techo";
+import { AppCalendar, DailyTasksView, SlotEditor, TimeSchedule, gridRange, useSlots, useTasks } from "./components/Schedule";
+import { STATUS_LABEL } from "../lib/plan-items";
+import { TASK_STATUS_LABEL } from "../lib/daily-tasks";
 import type { TechoMode } from "../lib/techo";
 import { eventLabel } from "../lib/todo-event";
 import { parsePlanDraft, PLAN_FIELDS, PLAN_FIELD_LABEL, type PlanDraft } from "../lib/pdca-plan";
@@ -135,6 +138,10 @@ function AppContent() {
   // 手帳の表示 (EXP-036): 日・週・月と、開いている日 (null = 今日)
   const [techo, setTecho] = useState<{ mode: TechoMode; date: string | null }>({ mode: 'day', date: null });
   const techoDate = techo.date ?? daily.today;
+  // アプリ内の予定表 (EXP-039・040): ToDo の時刻と日常のタスク (手帳の月の表の範囲)
+  const slots = useSlots(workspace.selectedId);
+  const taskRange = gridRange(techoDate);
+  const tasks = useTasks(taskRange.from, taskRange.to);
   const itemEvents = useItemEvents(workspace.selectedId);
   // 階層の KGI (固定) を Plan の要点に読み取り専用で出す (EXP-018)
   const kgiItem = it.items.find((i) => i.level === 'kgi');
@@ -640,6 +647,7 @@ function AppContent() {
     return now.toDateString() === eventDate.toDateString();
   };
 
+  // Google の予定の一覧 (今は画面に出さない・Google カレンダーは後で実装するので残す・EXP-039)
   const todayEvents = events.filter(isToday);
   const upcomingEvents = events.filter((e) => !isToday(e));
 
@@ -823,7 +831,7 @@ function AppContent() {
           />
         ) : (<>
         <div role="tablist" aria-label="右の列" className="flex gap-2">
-          {([['projects', '📁', 'プロジェクト'], ['calendar', '📅', '予定']] as const).map(([tab, icon, label]) => (
+          {([['projects', '📁', 'プロジェクト'], ['calendar', '📅', 'カレンダー']] as const).map(([tab, icon, label]) => (
             <button
               key={tab}
               type="button"
@@ -876,6 +884,7 @@ function AppContent() {
                       items={it.items}
                       logs={daily.logs}
                       notes={workspace.notes}
+                      tasks={tasks.tasks}
                       onChange={(mode, date) => setTecho({ mode, date: date === daily.today ? null : date })}
                       renderDay={(date) => (
                     <div className="flex flex-col gap-6">
@@ -898,17 +907,39 @@ function AppContent() {
                       }}
                       eventLabels={Object.fromEntries(itemEvents.events.map((e) => [e.itemId, eventLabel(e)]))}
                     />
-                    {date === daily.today && (
-                    <TodoScheduleView
-                      today={daily.today}
-                      items={it.items}
-                      events={itemEvents.events}
-                      busyId={itemEvents.busyId}
-                      problem={itemEvents.problem}
-                      done={itemEvents.done}
-                      onSchedule={(item, start, end) => void itemEvents.schedule(item, start, end)}
+                    {/* アプリ内のタイムスケジュール (EXP-039・040)。Google カレンダーへの登録 (EXP-030) は後で実装するので画面から外した */}
+                    <TimeSchedule
+                      headingId={`time-schedule-${date}`}
+                      items={[
+                        ...it.items.filter((t) => t.level === 'todo' && t.dueDate === date).map((t) => {
+                          const s = slots.slots.find((x) => x.itemId === t.id);
+                          return { key: `i-${t.id}`, title: t.title, start: s?.start ?? '', end: s?.end ?? '', badge: '[ToDo]', status: STATUS_LABEL[t.status] };
+                        }),
+                        ...tasks.tasks.filter((t) => t.day === date).map((t) => ({ key: `t-${t.id}`, title: t.title, start: t.start, end: t.end, badge: '[日常]', status: TASK_STATUS_LABEL[t.status] })),
+                      ]}
                     />
+                    {it.items.some((t) => t.level === 'todo' && t.dueDate === date) && (
+                      <section aria-labelledby={`slot-edit-${date}`} className="flex flex-col gap-2">
+                        <h4 id={`slot-edit-${date}`} className="text-sm font-bold text-gray-700">ToDo の時刻</h4>
+                        <ul className="flex flex-col gap-2">
+                          {it.items.filter((t) => t.level === 'todo' && t.dueDate === date).map((t) => (
+                            <li key={t.id} className="flex flex-col gap-1">
+                              <span className="min-w-0 break-words text-sm text-gray-900">{t.title}</span>
+                              <SlotEditor key={`${t.id}:${slots.slots.find((x) => x.itemId === t.id)?.start ?? ''}`} item={t} slot={slots.slots.find((x) => x.itemId === t.id)} onSave={(id, s, e) => void slots.save(id, s, e)} />
+                            </li>
+                          ))}
+                        </ul>
+                        <div role="status">{slots.problem && <p className="p-2 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-sm">{slots.problem}</p>}</div>
+                      </section>
                     )}
+                    <DailyTasksView
+                      day={date}
+                      tasks={tasks.tasks}
+                      problem={tasks.problem}
+                      onCreate={(title, s, e) => tasks.create(date, title, s, e)}
+                      onUpdate={(id, p) => void tasks.update(id, p)}
+                      onRemove={(id) => void tasks.remove(id)}
+                    />
                     </div>
                       )}
                     />
@@ -965,18 +996,8 @@ function AppContent() {
           </div>
         ) : (
           <div role="tabpanel" id="side-panel-calendar" aria-labelledby="side-tab-calendar" className="flex flex-col gap-6">
-        <div>
-          <h2 className="text-lg font-bold mb-3 text-blue-700"><span aria-hidden="true">📅</span> 今日の予定</h2>
-          <div className="space-y-3">
-            {todayEvents.map(e => <EventCard key={e.id || crypto.randomUUID()} event={e} isToday={true} />)}
-          </div>
-        </div>
-        <div>
-          <h2 className="text-lg font-bold mb-3 text-gray-600"><span aria-hidden="true">🗓️</span> 今後の予定</h2>
-          <div className="space-y-3">
-            {upcomingEvents.map(e => <EventCard key={e.id || crypto.randomUUID()} event={e} isToday={false} />)}
-          </div>
-        </div>
+            {/* アプリ内のカレンダー (EXP-039): すべてのプロジェクトの ToDo と日常の ToDo。Google の予定の一覧は後で実装する */}
+            <AppCalendar today={daily.today} />
           </div>
         )}
         </>)}

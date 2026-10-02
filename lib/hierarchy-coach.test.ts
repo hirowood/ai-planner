@@ -8,7 +8,7 @@ import { todayJst } from "./smart";
 const db = vi.hoisted(() => {
   type Call = { strings: string[]; values: unknown[] };
   type Row = Record<string, unknown>;
-  const state = { items: [] as Row[], calls: [] as Call[], refuseInsert: false, notes: [] as Row[], failMessages: false };
+  const state = { items: [] as Row[], calls: [] as Call[], refuseInsert: false, notes: [] as Row[], failMessages: false, tasks: [] as Row[] };
   const text = (c: Call) => c.strings.join(" ").toLowerCase().replace(/\s+/g, " ");
   const T = "2026-10-01T00:00:00.000Z";
   const sql = async (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -40,6 +40,8 @@ const db = vi.hoisted(() => {
         due_date: values[6], status: values[7], created_at: T, updated_at: T,
       }];
     }
+    if (/insert into item_slots/.test(q)) return [{ item_id: values[0] }];
+    if (/from daily_tasks/.test(q)) return state.tasks;
     if (/insert into notes/.test(q)) return [{ id: "n-1", project_id: values[1], kind: values[2], body: values[3], created_at: T }];
     if (/insert into messages/.test(q)) {
       if (state.failMessages) throw Object.assign(new Error("db down"), { code: "57P01" });
@@ -97,6 +99,7 @@ describe("POST /api/coach — 階層の次の段 (EXP-019 L3)", () => {
     db.state.refuseInsert = false;
     db.state.notes = [];
     db.state.failMessages = false;
+    db.state.tasks = [];
   });
   afterEach(() => perf.restore());
 
@@ -449,6 +452,53 @@ describe("POST /api/coach — 階層の次の段 (EXP-019 L3)", () => {
       const body = await (await POST(post())).json();
       expect(body.itemChanged).toBeNull();
       expect(updates()).toHaveLength(0);
+    });
+  });
+
+  describe("今日の ToDo の時刻と今日の日常の予定 (EXP-039 L3・EXP-040 L3)", () => {
+    const KDI = "00000000-0000-4000-8000-000000000003";
+    const setup = () => {
+      db.state.items = [row(KGI_ID, "kgi", null, KGI_CANARY), row(KPI_ID, "kpi", KGI_ID, "模試"), row(KDI, "kdi", KPI_ID, "単語")];
+      db.state.tasks = [{ id: "t1", day: todayJst(), title: "canary-歯医者-8e3a", start_time: "12:00", end_time: "13:00", status: "todo", created_at: "2026-10-02T00:00:00.000Z" }];
+    };
+    const slotInserts = () => db.state.calls.filter((c) => /insert into item_slots/.test(db.text(c)));
+
+    it("今日の ToDo の段に時刻を聞く文・<Records> に今日の日常の予定", async () => {
+      setup();
+      geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [] });
+      await POST(post());
+      const p = geminiState.lastPrompt ?? "";
+      expect(p).toContain('何時から何時にやるかも聞き、決まったら "items" / "candidates" の "start"・"end" (HH:MM) に入れてください');
+      const rec = p.slice(p.indexOf("<Records>"), p.indexOf("</Records>"));
+      expect(rec).toContain("#### 今日の日常の予定");
+      expect(rec).toContain("- 12:00〜13:00 canary-歯医者-8e3a [未実行]");
+    });
+
+    it("AI の items に時刻があれば、ToDo と一緒に時刻も保存する (その ToDo・owner)", async () => {
+      setup();
+      geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [{ title: "単語 1〜30", start: "09:00", end: "09:30" }] });
+      const body = await (await POST(post())).json();
+      expect(body.itemsAdded).toEqual([{ level: "todo", title: "単語 1〜30" }]);
+      const ins = slotInserts();
+      expect(ins).toHaveLength(1);
+      expect(ins[0].values).toEqual(expect.arrayContaining([EMAIL, "09:00", "09:30"]));
+      const createdId = inserts()[0] ? db.state.calls.indexOf(inserts()[0]) + 1 : -1;
+      expect(String(ins[0].values[0])).toBe(`00000000-0000-4000-8000-0000000009${String(createdId).padStart(2, "0")}`);
+    });
+
+    it("不正な時刻は時刻だけ捨てる (ToDo は作る)", async () => {
+      setup();
+      geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [{ title: "x", start: "10:00", end: "09:00" }] });
+      const body = await (await POST(post())).json();
+      expect(body.itemsAdded).toHaveLength(1);
+      expect(slotInserts()).toHaveLength(0);
+    });
+
+    it("候補を時刻つきで選ぶと、時刻も保存する", async () => {
+      setup();
+      geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [] });
+      await POST(post("x", { pick: { title: "過去問", target: "", start: "20:00", end: "21:00" } }));
+      expect(slotInserts()[0]?.values).toEqual(expect.arrayContaining(["20:00", "21:00"]));
     });
   });
 
