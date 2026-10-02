@@ -9,7 +9,7 @@ vi.mock("@google/generative-ai", async () => (await import("../../../test/mocks/
 
 import { POST } from "./route";
 
-const ALLOWED = ["calendar_ms", "first_chunk_ms", "gemini_ms", "history_len", "plan_proposed", "question_count", "route", "status", "total_ms"];
+const ALLOWED = ["calendar_ms", "first_chunk_ms", "gemini_ms", "history_len", "plan_proposed", "question_count", "route", "status", "time_dialog_used", "time_prompted", "total_ms"];
 const BODY_CANARY = "canary-message-body-7f3a";
 const REPLY_CANARY = "canary-gemini-reply-91c2";
 const TOKEN_CANARY = "fake-token-canary-5d1e";
@@ -167,6 +167,39 @@ describe("POST /api/chat — 計測点", () => {
     const res = await POST(post({ message: "hi", history: [] }));
     await res.text();
     expect(perf.parsed()[0]).toMatchObject({ status: 200, question_count: 0 });
+  });
+
+  it("time_prompted: 目印 [[time]] がチャンクの境目で割れても true (EXP-006 L1)", async () => {
+    geminiState.chunks = ["確保できる時間はどれくらいですか？\n[[ti", "me]]"];
+    const res = await POST(post({ message: "hi", history: [] }));
+    await res.text();
+    expect(perf.parsed()[0]).toMatchObject({ status: 200, time_prompted: true, question_count: 1 });
+  });
+
+  it("time_prompted: 目印が無ければ false (EXP-006 L1)", async () => {
+    geminiState.chunks = ["なぜそれをやる必要がありますか？"];
+    const res = await POST(post({ message: "hi", history: [] }));
+    await res.text();
+    expect(perf.parsed()[0]).toMatchObject({ status: 200, time_prompted: false });
+  });
+
+  it("time_dialog_used: 入力画面から送ると true・普通の送信では項目が出ない・値はログに出ない (EXP-006 L2)", async () => {
+    const TIME_CANARY = "時間: 2026/10/1 10:47〜11:53";
+    const res1 = await POST(post({ message: TIME_CANARY, history: [], via: "time_dialog" }));
+    await res1.text();
+    const res2 = await POST(post({ message: "hi", history: [] }));
+    await res2.text();
+    const [dialog, plain] = perf.parsed();
+    expect(dialog).toMatchObject({ status: 200, time_dialog_used: true });
+    expect(plain).not.toHaveProperty("time_dialog_used");
+    expect(perf.all.join("\n")).not.toContain("10:47");
+    expect(geminiState.lastPrompt).toBeTruthy();
+  });
+
+  it("time_dialog_used: via が決まった値でなければ無視する", async () => {
+    const res = await POST(post({ message: "hi", history: [], via: "something-else" }));
+    await res.text();
+    expect(perf.parsed()[0]).not.toHaveProperty("time_dialog_used");
   });
 
   it("plan_proposed: 予定案が無ければ false", async () => {

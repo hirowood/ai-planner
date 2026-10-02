@@ -1,0 +1,285 @@
+{
+  "project": "ai-planner — EXP-017 階層とタスクの状態",
+  "unit": "時間",
+  "note": "5 本同時。受け渡しの形は request.md §2 (PlanTree / useItems の形を UIT と WIRE の両方の指示に同じ文で)。子は git を使わない。",
+  "constraints": [
+    "commit は親だけ・子は git を使わない",
+    "自分の files 以外を書かない",
+    "ログは perf の項目だけ"
+  ],
+  "tasks": [
+    {
+      "id": "PRE",
+      "wbs": "1.1",
+      "name": "事前登録",
+      "goal": "固定",
+      "deliverable": "request.md",
+      "done_when": "commit",
+      "owner": "main",
+      "deps": [],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.1,
+      "likely": 0.2,
+      "pessimistic": 0.4,
+      "status": "done"
+    },
+    {
+      "id": "TST",
+      "wbs": "2.1",
+      "name": "テストを先に (L1〜L5)",
+      "goal": "仕様から",
+      "deliverable": "lib/plan-items.test.ts・lib/repo-items.test.ts・app/api/items/route.test.ts・app/components/PlanTree.test.tsx",
+      "done_when": "規則ごと",
+      "owner": "test-writer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "lib/plan-items.test.ts",
+        "lib/repo-items.test.ts",
+        "app/api/items/route.test.ts",
+        "app/components/PlanTree.test.tsx"
+      ],
+      "reads": [
+        "evidence/EXP-017/request.md"
+      ],
+      "optimistic": 0.2,
+      "likely": 0.4,
+      "pessimistic": 0.8,
+      "status": "done",
+      "started_at": "2026-09-30T13:20:50Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:48:03Z",
+      "actual_duration": 0.454
+    },
+    {
+      "id": "LIB",
+      "wbs": "2.2",
+      "name": "lib/plan-items.ts",
+      "goal": "純粋な関数",
+      "deliverable": "lib/plan-items.ts",
+      "done_when": "tsc",
+      "owner": "backend-implementer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "lib/plan-items.ts"
+      ],
+      "reads": [
+        "evidence/EXP-017/request.md"
+      ],
+      "optimistic": 0.1,
+      "likely": 0.2,
+      "pessimistic": 0.4,
+      "status": "done",
+      "started_at": "2026-09-30T13:20:50Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:23:42Z",
+      "actual_duration": 0.048
+    },
+    {
+      "id": "SRV",
+      "wbs": "2.3",
+      "name": "表・repo・API",
+      "goal": "plan_items と /api/items",
+      "deliverable": "db/schema.sql・scripts/db-migrate.mjs・lib/repo.ts・app/api/items/route.ts・app/api/items/[id]/route.ts",
+      "done_when": "tsc",
+      "owner": "backend-implementer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "db/schema.sql",
+        "scripts/db-migrate.mjs",
+        "lib/repo.ts",
+        "app/api/items/route.ts",
+        "app/api/items/[id]/route.ts"
+      ],
+      "reads": [
+        "evidence/EXP-017/request.md"
+      ],
+      "optimistic": 0.2,
+      "likely": 0.4,
+      "pessimistic": 0.8,
+      "status": "done",
+      "started_at": "2026-09-30T13:20:50Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:24:48Z",
+      "actual_duration": 0.066
+    },
+    {
+      "id": "UIT",
+      "wbs": "2.4",
+      "name": "PlanTree と useItems",
+      "goal": "階層の画面",
+      "deliverable": "app/components/PlanTree.tsx",
+      "done_when": "tsc",
+      "owner": "frontend-implementer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "app/components/PlanTree.tsx"
+      ],
+      "reads": [
+        "evidence/EXP-017/request.md"
+      ],
+      "optimistic": 0.3,
+      "likely": 0.5,
+      "pessimistic": 1.0,
+      "status": "done",
+      "started_at": "2026-09-30T13:20:50Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:29:00Z",
+      "actual_duration": 0.136
+    },
+    {
+      "id": "WIRE",
+      "wbs": "2.5",
+      "name": "page の配線",
+      "goal": "Plan タブに PlanTree",
+      "deliverable": "app/page.tsx",
+      "done_when": "tsc",
+      "owner": "frontend-implementer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "app/page.tsx"
+      ],
+      "reads": [
+        "app/components/PlanTree.tsx"
+      ],
+      "optimistic": 0.05,
+      "likely": 0.1,
+      "pessimistic": 0.3,
+      "status": "done",
+      "started_at": "2026-09-30T13:20:50Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:22:17Z",
+      "actual_duration": 0.024
+    },
+    {
+      "id": "RUN",
+      "wbs": "3.1",
+      "name": "全体の検査",
+      "goal": "結果",
+      "deliverable": "件数",
+      "done_when": "4 つ",
+      "owner": "main",
+      "deps": [
+        "TST",
+        "LIB",
+        "SRV",
+        "UIT",
+        "WIRE"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.03,
+      "likely": 0.05,
+      "pessimistic": 0.2
+    },
+    {
+      "id": "REV",
+      "wbs": "3.2",
+      "name": "レビュー",
+      "goal": "安全・a11y",
+      "deliverable": "指摘",
+      "done_when": "ファイル:行",
+      "owner": "reviewers",
+      "deps": [
+        "SRV",
+        "UIT",
+        "WIRE"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.05,
+      "likely": 0.15,
+      "pessimistic": 0.3
+    },
+    {
+      "id": "MUT",
+      "wbs": "3.3",
+      "name": "計器の確認",
+      "goal": "owner・段の一致・上限",
+      "deliverable": "赤",
+      "done_when": "合う",
+      "owner": "main",
+      "deps": [
+        "RUN"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.03,
+      "likely": 0.05,
+      "pessimistic": 0.2,
+      "status": "done",
+      "started_at": "2026-09-30T13:48:03Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:48:38Z",
+      "actual_duration": 0.01
+    },
+    {
+      "id": "LAB",
+      "wbs": "4.1",
+      "name": "lab と commit",
+      "goal": "L1〜L6",
+      "deliverable": "lab.md",
+      "done_when": "blocking 0",
+      "owner": "main",
+      "deps": [
+        "RUN",
+        "REV",
+        "MUT"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.03,
+      "likely": 0.05,
+      "pessimistic": 0.2,
+      "status": "done",
+      "started_at": "2026-09-30T13:50:05Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:50:05Z",
+      "actual_duration": 0.0
+    },
+    {
+      "id": "MIGRATE",
+      "wbs": "5.0",
+      "name": "本人: 移行",
+      "goal": "plan_items",
+      "deliverable": "5 つの表",
+      "done_when": "出た",
+      "owner": "本人",
+      "deps": [
+        "LAB"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.02,
+      "likely": 0.05,
+      "pessimistic": 24
+    },
+    {
+      "id": "LOCAL",
+      "wbs": "5.1",
+      "name": "本人のローカル確認",
+      "goal": "階層を作る",
+      "deliverable": "一言・点数",
+      "done_when": "使った",
+      "owner": "本人",
+      "deps": [
+        "MIGRATE"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.1,
+      "likely": 0.3,
+      "pessimistic": 24
+    }
+  ]
+}

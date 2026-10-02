@@ -15,7 +15,15 @@ export const geminiState: {
   failAfterChunks: number | null;
   calls: number;
   lastPrompt: string | null;
+  // getGenerativeModel({ generationConfig }) か generateContent({ generationConfig }) で渡された最後の設定 (EXP-009)
+  lastConfig: Record<string, unknown> | null;
+  // getGenerativeModel({ model }) で渡された最後のモデル名 (EXP-014)
+  lastModel: string | null;
+  // failWith を投げる回数 (EXP-028)。null ならいつも投げる・数なら その回数だけ投げて後は成功
+  failTimes: number | null;
 } = {
+  failTimes: null,
+  lastModel: null,
   failWith: null,
   reply: "fake reply",
   delayMs: 0,
@@ -24,7 +32,14 @@ export const geminiState: {
   failAfterChunks: null,
   calls: 0,
   lastPrompt: null,
+  lastConfig: null,
 };
+
+function configOf(x: unknown): Record<string, unknown> | null {
+  if (typeof x !== "object" || x === null) return null;
+  const c = (x as { generationConfig?: unknown }).generationConfig;
+  return typeof c === "object" && c !== null ? (c as Record<string, unknown>) : null;
+}
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -42,8 +57,26 @@ async function* chunkStream(): AsyncGenerator<{ text(): string }> {
 
 export const generativeAiMock = {
   GoogleGenerativeAI: class {
-    getGenerativeModel() {
+    getGenerativeModel(params?: unknown) {
+      const modelConfig = configOf(params);
+      if (modelConfig) geminiState.lastConfig = modelConfig;
+      const model = (params as { model?: unknown } | undefined)?.model;
+      if (typeof model === "string") geminiState.lastModel = model;
       return {
+        // 一括で JSON などを返させる呼び方 (EXP-009 の /api/plan/chat)。
+        // prompt は文字列でも GenerateContentRequest でもよい (後者は JSON にして lastPrompt へ)
+        async generateContent(prompt: unknown) {
+          geminiState.calls += 1;
+          geminiState.lastPrompt = typeof prompt === "string" ? prompt : JSON.stringify(prompt);
+          const requestConfig = configOf(prompt);
+          if (requestConfig) geminiState.lastConfig = requestConfig;
+          if (geminiState.failWith && (geminiState.failTimes === null || geminiState.failTimes > 0)) {
+            if (geminiState.failTimes !== null) geminiState.failTimes -= 1;
+            throw geminiState.failWith;
+          }
+          if (geminiState.delayMs > 0) await wait(geminiState.delayMs);
+          return { response: { text: () => geminiState.reply } };
+        },
         startChat() {
           return {
             async sendMessage(prompt: string) {

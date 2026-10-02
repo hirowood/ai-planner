@@ -1,0 +1,218 @@
+{
+  "project": "ai-planner — EXP-021 挨拶と選択肢",
+  "unit": "時間",
+  "note": "小さめのカード。3 本を同時に (受け渡しの形は request.md §2)。子は git を使わない。",
+  "constraints": [
+    "commit は親だけ・子は git を使わない",
+    "自分の files 以外を書かない"
+  ],
+  "tasks": [
+    {
+      "id": "PRE",
+      "wbs": "1.1",
+      "name": "事前登録",
+      "goal": "固定",
+      "deliverable": "request.md",
+      "done_when": "commit",
+      "owner": "main",
+      "deps": [],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.05,
+      "likely": 0.1,
+      "pessimistic": 0.2,
+      "status": "done"
+    },
+    {
+      "id": "TST",
+      "wbs": "2.1",
+      "name": "テストを先に (L1〜L4)",
+      "goal": "仕様から",
+      "deliverable": "lib/greeting.test.ts・app/components/StartChoices.test.tsx",
+      "done_when": "規則ごと",
+      "owner": "test-writer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "lib/greeting.test.ts",
+        "app/components/StartChoices.test.tsx"
+      ],
+      "reads": [
+        "evidence/EXP-021/request.md"
+      ],
+      "optimistic": 0.1,
+      "likely": 0.2,
+      "pessimistic": 0.4,
+      "status": "done",
+      "started_at": "2026-09-30T13:08:35Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:09:46Z",
+      "actual_duration": 0.02
+    },
+    {
+      "id": "LIBUI",
+      "wbs": "2.2",
+      "name": "lib/greeting.ts と StartChoices 部品",
+      "goal": "純粋な関数と部品",
+      "deliverable": "lib/greeting.ts・app/components/StartChoices.tsx",
+      "done_when": "tsc",
+      "owner": "frontend-implementer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "lib/greeting.ts",
+        "app/components/StartChoices.tsx"
+      ],
+      "reads": [
+        "evidence/EXP-021/request.md"
+      ],
+      "optimistic": 0.1,
+      "likely": 0.2,
+      "pessimistic": 0.4,
+      "status": "done",
+      "started_at": "2026-09-30T13:08:35Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:10:10Z",
+      "actual_duration": 0.026
+    },
+    {
+      "id": "WIRE",
+      "wbs": "2.3",
+      "name": "page の配線",
+      "goal": "挨拶と選択肢を会話欄に・ボタンの動き",
+      "deliverable": "app/page.tsx (必要なら ProjectPanel.tsx の作成欄のフォーカス)",
+      "done_when": "tsc",
+      "owner": "frontend-implementer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "app/page.tsx",
+        "app/components/ProjectPanel.tsx"
+      ],
+      "reads": [
+        "lib/greeting.ts"
+      ],
+      "optimistic": 0.15,
+      "likely": 0.3,
+      "pessimistic": 0.6,
+      "status": "done",
+      "started_at": "2026-09-30T13:08:35Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:11:21Z",
+      "actual_duration": 0.046
+    },
+    {
+      "id": "RUN",
+      "wbs": "3.1",
+      "name": "全体の検査",
+      "goal": "結果",
+      "deliverable": "件数",
+      "done_when": "4 つ",
+      "owner": "main",
+      "deps": [
+        "TST",
+        "LIBUI",
+        "WIRE"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.03,
+      "likely": 0.05,
+      "pessimistic": 0.2,
+      "status": "done",
+      "started_at": "2026-09-30T13:11:21Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:11:45Z",
+      "actual_duration": 0.007
+    },
+    {
+      "id": "REV",
+      "wbs": "3.2",
+      "name": "a11y レビュー",
+      "goal": "ボタンの並び",
+      "deliverable": "指摘",
+      "done_when": "ファイル:行",
+      "owner": "a11y-reviewer",
+      "deps": [
+        "LIBUI",
+        "WIRE"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.05,
+      "likely": 0.1,
+      "pessimistic": 0.3,
+      "status": "done",
+      "started_at": "2026-09-30T13:11:21Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:13:43Z",
+      "actual_duration": 0.039
+    },
+    {
+      "id": "MUT",
+      "wbs": "3.3",
+      "name": "計器の確認",
+      "goal": "時刻の境目・？ 1 つ",
+      "deliverable": "赤",
+      "done_when": "合う",
+      "owner": "main",
+      "deps": [
+        "RUN"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.03,
+      "likely": 0.05,
+      "pessimistic": 0.2,
+      "status": "done",
+      "started_at": "2026-09-30T13:11:45Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:12:08Z",
+      "actual_duration": 0.006
+    },
+    {
+      "id": "LAB",
+      "wbs": "4.1",
+      "name": "lab と commit",
+      "goal": "L1〜L5",
+      "deliverable": "lab.md",
+      "done_when": "blocking 0",
+      "owner": "main",
+      "deps": [
+        "RUN",
+        "REV",
+        "MUT"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.03,
+      "likely": 0.05,
+      "pessimistic": 0.2,
+      "status": "done",
+      "started_at": "2026-09-30T13:13:43Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:13:43Z",
+      "actual_duration": 0.0
+    },
+    {
+      "id": "LOCAL",
+      "wbs": "5.1",
+      "name": "本人のローカル確認",
+      "goal": "選択肢から始める",
+      "deliverable": "一言・点数",
+      "done_when": "使った",
+      "owner": "本人",
+      "deps": [
+        "LAB"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.1,
+      "likely": 0.3,
+      "pessimistic": 24
+    }
+  ]
+}

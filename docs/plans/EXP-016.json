@@ -1,0 +1,301 @@
+{
+  "project": "ai-planner — EXP-016 会話 1 本・記録を見て話す",
+  "unit": "時間",
+  "note": "started_at を起動の前に記録。UI の受け渡しの形 (PlanFields / usePlanStore) を両方の指示に同じ文で書いた。子は git を使わない (EXP-010 で stash 事故)。",
+  "constraints": [
+    "commit は親だけ・子は git を一切使わない",
+    "ログは perf の項目だけ",
+    "自分の files 以外を書かない"
+  ],
+  "tasks": [
+    {
+      "id": "PRE",
+      "wbs": "1.1",
+      "name": "事前登録",
+      "goal": "固定",
+      "deliverable": "evidence/EXP-016/request.md (94ed0fb)",
+      "done_when": "単独の commit",
+      "owner": "main",
+      "deps": [],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.1,
+      "likely": 0.2,
+      "pessimistic": 0.4,
+      "status": "done"
+    },
+    {
+      "id": "TST",
+      "wbs": "2.1",
+      "name": "テストを先に",
+      "goal": "L1〜L5",
+      "deliverable": "coach-context・coach route・PlanFields のテスト",
+      "done_when": "規則ごと 1 件以上",
+      "owner": "test-writer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "lib/coach-context.test.ts",
+        "app/api/coach/route.test.ts",
+        "app/components/PlanFields.test.tsx"
+      ],
+      "reads": [
+        "evidence/EXP-016/request.md"
+      ],
+      "optimistic": 0.2,
+      "likely": 0.4,
+      "pessimistic": 0.8,
+      "status": "done",
+      "started_at": "2026-09-30T12:57:10Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:03:21Z",
+      "actual_duration": 0.103
+    },
+    {
+      "id": "LIB",
+      "wbs": "2.2",
+      "name": "lib/coach-context.ts",
+      "goal": "記録の文",
+      "deliverable": "lib/coach-context.ts",
+      "done_when": "tsc",
+      "owner": "backend-implementer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "lib/coach-context.ts"
+      ],
+      "reads": [
+        "evidence/EXP-016/request.md"
+      ],
+      "optimistic": 0.05,
+      "likely": 0.15,
+      "pessimistic": 0.3,
+      "status": "done",
+      "started_at": "2026-09-30T12:57:10Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T12:59:31Z",
+      "actual_duration": 0.039
+    },
+    {
+      "id": "SRV",
+      "wbs": "2.3",
+      "name": "/api/coach・listPastCycles・perf",
+      "goal": "記録を DB から読んで話す",
+      "deliverable": "app/api/coach/route.ts・lib/repo.ts・lib/perf.ts",
+      "done_when": "tsc",
+      "owner": "backend-implementer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "app/api/coach/route.ts",
+        "lib/repo.ts",
+        "lib/perf.ts"
+      ],
+      "reads": [
+        "evidence/EXP-016/request.md",
+        "app/api/plan/chat/route.ts"
+      ],
+      "optimistic": 0.2,
+      "likely": 0.4,
+      "pessimistic": 0.8,
+      "status": "done",
+      "started_at": "2026-09-30T12:57:10Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:00:21Z",
+      "actual_duration": 0.053
+    },
+    {
+      "id": "UIF",
+      "wbs": "2.4",
+      "name": "PlanFields と保存の hook",
+      "goal": "右の列は欄だけ",
+      "deliverable": "app/components/PlanFields.tsx",
+      "done_when": "tsc",
+      "owner": "frontend-implementer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "app/components/PlanFields.tsx"
+      ],
+      "reads": [
+        "app/components/PlanPanel.tsx"
+      ],
+      "optimistic": 0.2,
+      "likely": 0.4,
+      "pessimistic": 0.8,
+      "status": "done",
+      "started_at": "2026-09-30T12:57:10Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:00:07Z",
+      "actual_duration": 0.049
+    },
+    {
+      "id": "UIC",
+      "wbs": "2.5",
+      "name": "会話 1 本と配線",
+      "goal": "選んだプロジェクトは /api/coach",
+      "deliverable": "app/page.tsx",
+      "done_when": "tsc",
+      "owner": "frontend-implementer",
+      "deps": [
+        "PRE"
+      ],
+      "files": [
+        "app/page.tsx"
+      ],
+      "reads": [
+        "app/components/PlanFields.tsx"
+      ],
+      "optimistic": 0.2,
+      "likely": 0.4,
+      "pessimistic": 0.8,
+      "status": "done",
+      "started_at": "2026-09-30T12:57:10Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:00:37Z",
+      "actual_duration": 0.058
+    },
+    {
+      "id": "RUN",
+      "wbs": "3.1",
+      "name": "全体の検査",
+      "goal": "生の結果",
+      "deliverable": "件数",
+      "done_when": "4 つ",
+      "owner": "main",
+      "deps": [
+        "TST",
+        "LIB",
+        "SRV",
+        "UIF",
+        "UIC"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.05,
+      "likely": 0.1,
+      "pessimistic": 0.3,
+      "status": "done",
+      "started_at": "2026-09-30T13:03:21Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:03:43Z",
+      "actual_duration": 0.006
+    },
+    {
+      "id": "REV",
+      "wbs": "3.2",
+      "name": "レビュー",
+      "goal": "安全・a11y",
+      "deliverable": "指摘",
+      "done_when": "ファイル:行",
+      "owner": "reviewers",
+      "deps": [
+        "SRV",
+        "UIF",
+        "UIC"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.1,
+      "likely": 0.2,
+      "pessimistic": 0.4,
+      "status": "done",
+      "started_at": "2026-09-30T13:00:21Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:01:38Z",
+      "actual_duration": 0.021
+    },
+    {
+      "id": "MUT",
+      "wbs": "3.3",
+      "name": "計器の確認",
+      "goal": "上限・owner・偽の記録",
+      "deliverable": "赤の数",
+      "done_when": "合う",
+      "owner": "main",
+      "deps": [
+        "RUN"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.05,
+      "likely": 0.1,
+      "pessimistic": 0.3,
+      "status": "done",
+      "started_at": "2026-09-30T13:03:43Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:04:21Z",
+      "actual_duration": 0.011
+    },
+    {
+      "id": "FIX",
+      "wbs": "3.4",
+      "name": "差し戻し (a11y blocking 3 + warn)",
+      "goal": "計画外",
+      "deliverable": "page・PlanFields",
+      "done_when": "blocking 0",
+      "owner": "frontend-implementer",
+      "deps": [
+        "REV"
+      ],
+      "files": [
+        "app/page.tsx",
+        "app/components/PlanFields.tsx"
+      ],
+      "reads": [],
+      "status": "done",
+      "started_at": "2026-09-30T13:01:18Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:03:01Z",
+      "actual_duration": 0.029
+    },
+    {
+      "id": "LAB",
+      "wbs": "4.1",
+      "name": "lab と commit",
+      "goal": "L1〜L6",
+      "deliverable": "lab.md",
+      "done_when": "blocking 0",
+      "owner": "main",
+      "deps": [
+        "RUN",
+        "REV",
+        "MUT",
+        "FIX"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.05,
+      "likely": 0.1,
+      "pessimistic": 0.3,
+      "status": "done",
+      "started_at": "2026-09-30T13:04:46Z",
+      "progress": 100,
+      "ended_at": "2026-09-30T13:04:46Z",
+      "actual_duration": 0.0
+    },
+    {
+      "id": "LOCAL",
+      "wbs": "5.1",
+      "name": "本人のローカル確認",
+      "goal": "1 本の会話",
+      "deliverable": "一言・点数",
+      "done_when": "使った",
+      "owner": "本人",
+      "deps": [
+        "LAB"
+      ],
+      "files": [],
+      "reads": [],
+      "optimistic": 0.2,
+      "likely": 0.5,
+      "pessimistic": 24,
+      "status": "doing",
+      "started_at": "2026-09-30T13:04:57Z"
+    }
+  ]
+}

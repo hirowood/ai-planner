@@ -4,6 +4,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "../auth/[...nextauth]/route";
 import { startPerf } from "../../../lib/perf";
 import { quotaBody, quotaKind } from "../../../lib/quota";
+import { TIME_MARKER } from "../../../lib/time-input";
+import { GEMINI_MODEL } from "../../../lib/model";
 
 // --- 環境変数の確認 ---
 if (!process.env.GOOGLE_API_KEY) {
@@ -153,9 +155,11 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
 
     // 会話のメッセージ数だけを記録する (UX PDCA C0: 予定登録までの往復数を出すため)
     perf.set({ history_len: safeBody.history.length });
+    // 時間の入力画面から送られたか (EXP-006)。送信の種類だけを見て、本文は見ない
+    if (bodyMap.via === "time_dialog") perf.set({ time_dialog_used: true });
 
     // 🛡️ 4. AIモデルの準備
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
     const now = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
 
     const systemPrompt = `
@@ -179,6 +183,8 @@ async function handle(req: Request, perf: Perf): Promise<Response> {
 WhatとWhyが明確になったら、次の順に1つずつ質問してください。
 1. **学習時間**: 確保できる時間はどれくらいですか？（または開始・終了時刻）
 2. **ゴール**: 今回のセッションが終わった時、どういう状態になっていれば「完了」としますか？
+
+学習時間を質問する返答では、返答の最後に ${TIME_MARKER} とだけ書いてください（ユーザーの画面に時間の入力欄が開きます）。
 
 **フェーズ3: プランの提案（Plan Proposal）**
 ここまでの情報（Goalと時間）を元に、最適なタイムスケジュール案を提示してください。
@@ -240,7 +246,11 @@ WhatとWhyが明確になったら、次の順に1つずつ質問してくださ
     return perf.streamText(textChunks(result.stream), {
       part: "gemini_ms",
       partStart: geminiStart,
-      flag: { name: "plan_proposed", pattern: /```json\s*[\s\S]*?\s*```/ },
+      flags: [
+        { name: "plan_proposed", pattern: /```json\s*[\s\S]*?\s*```/ },
+        // EXP-006: 時間の入力画面の目印 (画面が入力画面を開くのと同じ規則)
+        { name: "time_prompted", pattern: /\[\[time\]\]/ },
+      ],
       // EXP-004: 1 回の返答に含まれる質問の数 (「？」と「?」を数えるだけ)
       count: { name: "question_count", pattern: /[?？]/g },
     });

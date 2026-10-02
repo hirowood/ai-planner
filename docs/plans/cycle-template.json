@@ -1,0 +1,133 @@
+{
+  "project": "ai-planner — EXP-XXX (カード 1 枚の開発サイクル・雛形)",
+  "unit": "時間",
+  "note": "docs/parallel-cycle-spec.md の雛形。カードを始めるとき docs/plans/EXP-XXX.json へ複製し、id 以外 (name / files / reads / 見積り) をカードに合わせて書き換える。見積りは calibration.json の factor を掛けてから書く (5 件たまるまでは素のまま)。actual_duration は親が記録した started_at / ended_at の差だけを書く (推測を書かない)。",
+  "constraints": [
+    "commit・push・PR・マージは親だけが行う (子 agent は書くだけ)",
+    "push / 本番 / 巻き戻しは本人の承認 (Human Gate)",
+    "ログに出してよいのは lib/perf.ts の型にある項目だけ (本文・予定の中身・トークンは出さない)",
+    ".env.local を読まない",
+    "自分の task_card の files 以外のファイルを書かない。読むのは reads と files だけ"
+  ],
+  "tasks": [
+    {
+      "id": "PRE", "wbs": "1.1", "name": "事前登録 (request.md) と commit",
+      "goal": "仮説・範囲・指標・判定規則 (L1〜/本人) を変更より前に固定する",
+      "deliverable": "evidence/EXP-XXX/request.md (単独の commit)",
+      "done_when": "request.md が単独で commit され、L 規則が機械的に判定できる形で書かれている",
+      "owner": "main", "deps": [],
+      "files": ["evidence/EXP-XXX/request.md"],
+      "reads": ["docs/hypotheses.md", "docs/pdca-spec.md"],
+      "optimistic": 0.1, "likely": 0.2, "pessimistic": 0.4
+    },
+    {
+      "id": "TST", "wbs": "2.1", "name": "テストを先に書く (L 規則 → テスト)",
+      "goal": "request.md の L 規則をそのまま失敗するテストにする (実装を見ずに書く)",
+      "deliverable": "新しい *.test.ts(x) (まだ赤でよい)",
+      "done_when": "L 規則ごとに 1 件以上のテストがあり、どの規則のテストかが名前に書いてある",
+      "owner": "test-writer", "deps": ["PRE"],
+      "files": ["lib/FEATURE.test.ts", "app/api/chat/route.test.ts"],
+      "reads": ["evidence/EXP-XXX/request.md", "test/mocks/generative-ai.ts"],
+      "optimistic": 0.2, "likely": 0.3, "pessimistic": 0.6
+    },
+    {
+      "id": "LIB", "wbs": "2.2", "name": "純粋な関数 (lib/)",
+      "goal": "画面とサーバが共通で使う判定・組み立てを副作用なしで書く",
+      "deliverable": "lib/FEATURE.ts",
+      "done_when": "tsc が通り、export の型が request.md の範囲と一致する",
+      "owner": "frontend-implementer", "deps": ["PRE"],
+      "files": ["lib/FEATURE.ts"],
+      "reads": ["evidence/EXP-XXX/request.md"],
+      "optimistic": 0.1, "likely": 0.2, "pessimistic": 0.4
+    },
+    {
+      "id": "SRV", "wbs": "2.3", "name": "サーバ (API・計測)",
+      "goal": "route と [perf] の項目を request.md の指標どおりに変える",
+      "deliverable": "app/api/**/route.ts・lib/perf.ts の差分",
+      "done_when": "tsc が通り、[perf] に足した項目が数・真偽だけである",
+      "owner": "backend-implementer", "deps": ["LIB"],
+      "files": ["app/api/chat/route.ts", "lib/perf.ts"],
+      "reads": ["lib/FEATURE.ts", "evidence/EXP-XXX/request.md"],
+      "optimistic": 0.2, "likely": 0.3, "pessimistic": 0.6
+    },
+    {
+      "id": "UI", "wbs": "2.4", "name": "画面 (部品・page の配線)",
+      "goal": "request.md の画面の規則どおりに部品を作り page.tsx へつなぐ",
+      "deliverable": "app/components/FEATURE.tsx・app/page.tsx の差分",
+      "done_when": "tsc が通り、部品に名前 (aria) とキーボード操作がある",
+      "owner": "frontend-implementer", "deps": ["LIB"],
+      "files": ["app/components/FEATURE.tsx", "app/page.tsx"],
+      "reads": ["lib/FEATURE.ts", "evidence/EXP-XXX/request.md"],
+      "optimistic": 0.3, "likely": 0.5, "pessimistic": 1.0
+    },
+    {
+      "id": "RUN", "wbs": "3.1", "name": "テスト・型・lint・build を実行",
+      "goal": "生の結果だけを返す (直さない・解釈しない)",
+      "deliverable": "npm test / tsc / lint / next build の件数と失敗の全文",
+      "done_when": "4 つの結果が件数つきでそろっている",
+      "owner": "harness-test-runner", "deps": ["TST", "SRV", "UI"],
+      "files": [],
+      "reads": ["app/", "lib/", "test/"],
+      "optimistic": 0.1, "likely": 0.15, "pessimistic": 0.3
+    },
+    {
+      "id": "REV", "wbs": "3.2", "name": "読み取り専用のレビュー (a11y・安全)",
+      "goal": "部品の a11y と、ログ・入力の安全を別の目で見る",
+      "deliverable": "blocking / warn / ok の指摘 (再現手順つき)",
+      "done_when": "指摘ごとにファイル:行と再現手順がある。無ければ ok と書いてある",
+      "owner": "a11y-reviewer + generic-security-reviewer", "deps": ["SRV", "UI"],
+      "files": [],
+      "reads": ["app/components/FEATURE.tsx", "app/page.tsx", "app/api/chat/route.ts", "lib/perf.ts"],
+      "optimistic": 0.1, "likely": 0.2, "pessimistic": 0.4
+    },
+    {
+      "id": "MUT", "wbs": "3.3", "name": "計器の確認 (わざと壊して赤になるか)",
+      "goal": "新しい指標・判定のテストが、壊したときに本当に赤になることを確かめる",
+      "deliverable": "壊した箇所・赤になったテスト名・戻した後の件数",
+      "done_when": "新しい指標ごとに 1 回ずつ赤を確認し、戻して全件緑",
+      "owner": "main", "deps": ["RUN"],
+      "files": ["app/api/chat/route.ts"],
+      "reads": ["lib/", "app/"],
+      "optimistic": 0.1, "likely": 0.15, "pessimistic": 0.3
+    },
+    {
+      "id": "LAB", "wbs": "4.1", "name": "lab.md に判定を書き commit",
+      "goal": "L 規則ごとに 確認 / 結果 を書き、変更と一緒に commit する",
+      "deliverable": "evidence/EXP-XXX/lab.md と変更の commit",
+      "done_when": "全 L 規則が 成立 / 不成立 で埋まり、指摘の blocking が 0",
+      "owner": "main", "deps": ["RUN", "REV", "MUT"],
+      "files": ["evidence/EXP-XXX/lab.md"],
+      "reads": ["evidence/EXP-XXX/request.md"],
+      "optimistic": 0.1, "likely": 0.15, "pessimistic": 0.3
+    },
+    {
+      "id": "LOCAL", "wbs": "5.1", "name": "本人のローカル確認",
+      "goal": "本物の Gemini とブラウザで、実験室で見られない所を本人が見る",
+      "deliverable": "本人の一言・点数・[perf] 行",
+      "done_when": "本人が「使った」と伝え、[perf] を回収した",
+      "owner": "本人", "deps": ["LAB"],
+      "files": [], "reads": [],
+      "optimistic": 0.2, "likely": 0.5, "pessimistic": 24
+    },
+    {
+      "id": "SHIP", "wbs": "5.2", "name": "push・PR・Preview の画面検査",
+      "goal": "本人の承認後に push し、Preview の A11Y を取ってから PR にする",
+      "deliverable": "PR (merge commit で出す前提)・a11y-axe.json",
+      "done_when": "PR が開き、Preview の axe が記録されている",
+      "owner": "main", "deps": ["LOCAL"],
+      "files": ["evidence/EXP-XXX/a11y-axe.json"],
+      "reads": [],
+      "optimistic": 0.1, "likely": 0.2, "pessimistic": 0.5
+    },
+    {
+      "id": "RETRO", "wbs": "6.1", "name": "振り返り (retro.py) と教訓の登録",
+      "goal": "見積りと実績の差・遅かった工程・分け方の失敗を次へ渡す",
+      "deliverable": "evidence/EXP-XXX/retro.md・docs/cycle-lessons.md の行",
+      "done_when": "retro.py の出力を貼り、遅れた工程ごとに 原因 / 次にどうするか を 1 行ずつ書いた",
+      "owner": "main", "deps": ["SHIP"],
+      "files": ["evidence/EXP-XXX/retro.md", "docs/cycle-lessons.md", "docs/plans/EXP-XXX.json"],
+      "reads": ["docs/plans/calibration.json"],
+      "optimistic": 0.1, "likely": 0.15, "pessimistic": 0.3
+    }
+  ]
+}
