@@ -62,6 +62,26 @@ describe("progressText (EXP-032 L1)", () => {
     ];
     expect(progressText(all, TODAY)).toContain("最近 7 日の ToDo 1 つ (実行 1)");
   });
+  it("できた割合の分母は 実行・成功・失敗 だけ・内訳には棚上げと調整も出す (EXP-033 L1)", () => {
+    const base = [item(1, "kgi", null), item(2, "kpi", 1), item(3, "kdi", 2)];
+    const all = [
+      ...base,
+      item(10, "todo", 3, { dueDate: TODAY, status: "done" }),
+      item(11, "todo", 3, { dueDate: TODAY, status: "succeeded" }),
+      item(12, "todo", 3, { dueDate: TODAY, status: "failed" }),
+      item(13, "todo", 3, { dueDate: TODAY, status: "shelved" }),
+      item(14, "todo", 3, { dueDate: TODAY, status: "adjusted" }),
+    ];
+    expect(progressText(all, TODAY)).toContain("最近 7 日の ToDo 5 つ (実行 1・棚上げ 1・失敗 1・成功 1・調整 1) / できた割合 67% (2/3)");
+  });
+  it("棚上げと調整だけなら「まだ無し」 (EXP-033 L2)", () => {
+    const all = [
+      item(1, "kgi", null), item(2, "kpi", 1), item(3, "kdi", 2),
+      item(10, "todo", 3, { dueDate: TODAY, status: "shelved" }),
+      item(11, "todo", 3, { dueDate: TODAY, status: "adjusted" }),
+    ];
+    expect(progressText(all, TODAY)).toContain("(棚上げ 1・調整 1) / できた割合 まだ無し");
+  });
   it("daysBetween", () => {
     expect(daysBetween("2026-10-02", "2026-10-09")).toBe(7);
     expect(daysBetween("2026-10-02", "2026-09-30")).toBe(-2);

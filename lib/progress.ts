@@ -38,7 +38,7 @@ function byCreated(a: PlanItem, b: PlanItem): number {
   return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0;
 }
 
-/** AI に渡す進み具合と期限。KGI・KPI の期限、KDI ごとの最近 7 日の ToDo の内訳とできた割合。 */
+/** AI に渡す進み具合と期限。KGI・KPI の期限、KDI ごとの最近 7 日の ToDo の内訳とできた割合 (= (実行+成功) / (実行+成功+失敗))。 */
 export function progressText(items: PlanItem[], today: string): string {
   const sorted = [...items].sort(byCreated);
   const kgi = sorted.find((i) => i.level === "kgi");
@@ -56,7 +56,8 @@ export function progressText(items: PlanItem[], today: string): string {
       });
       const counts = Object.fromEntries(STATUS_ORDER.map((s) => [s, 0])) as Record<ItemStatus, number>;
       for (const t of recent) counts[t.status] += 1;
-      const judged = recent.length - counts.todo;
+      // 分母は 実行・成功・失敗 だけ。自分で決めた棚上げ・調整は「できなかった」に数えない (EXP-033)
+      const judged = counts.done + counts.succeeded + counts.failed;
       const doneLike = counts.done + counts.succeeded;
       const rate = judged > 0 ? `できた割合 ${Math.round((doneLike / judged) * 100)}% (${doneLike}/${judged})` : "できた割合 まだ無し";
       const detail = STATUS_ORDER.filter((s) => counts[s] > 0).map((s) => `${STATUS_LABEL[s]} ${counts[s]}`).join("・");
