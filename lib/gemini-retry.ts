@@ -13,7 +13,7 @@ export function isOverloaded(error: unknown): boolean {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** 上位のモデルが無い (404) か枠切れ (429) なら、今のモデルで 1 回だけ送り直す (EXP-044)。ほかの失敗はそのまま投げる。 */
+/** 上位のモデルが無い (404)・枠切れ (429)・混雑 (503) なら、今のモデルで 1 回だけ送り直す (EXP-044)。ほかの失敗はそのまま投げる。 */
 export async function withModelFallback<T>(
   run: (model: string) => Promise<T>,
   primary: string,
@@ -26,7 +26,8 @@ export async function withModelFallback<T>(
     const status = (error as { status?: unknown } | null)?.status;
     const message = String((error as { message?: unknown } | null)?.message ?? "");
     const missingOrQuota = status === 404 || status === 429 || /\b(404|429)\b/.test(message);
-    if (!missingOrQuota) throw error;
+    // 混雑 (503) も替える (EXP-044 の事前登録の後の変更: 実測で上位が 503 を返した)
+    if (!missingOrQuota && !isOverloaded(error)) throw error;
     return { result: await run(fallback), fellBack: true };
   }
 }

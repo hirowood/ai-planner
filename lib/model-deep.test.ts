@@ -19,9 +19,10 @@ describe("会話によってモデルを分ける (EXP-044)", () => {
 });
 
 describe("withModelFallback (EXP-044)", () => {
-  it("上位が 404 / 429 なら今のモデルで 1 回だけ (fellBack: true)", async () => {
+  it("上位が 404 / 429 / 503 なら今のモデルで 1 回だけ (fellBack: true)", async () => {
     // status だけ持つ失敗と、文にだけ番号がある失敗の両方
-    const fails = [404, 429].flatMap((status) => [
+    // 503 は事前登録の後で足した (実測で上位が 503 を返した)
+    const fails = [404, 429, 503].flatMap((status) => [
       Object.assign(new Error("model unavailable"), { status }),
       new Error(`[GoogleGenerativeAI Error]: [${status} Not Found]`),
     ]);
