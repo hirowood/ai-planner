@@ -14,6 +14,7 @@ import { PlanTree, useItems } from "./components/PlanTree";
 import { choiceButtons, itemsAddedNotice, parseCandidateList, type Candidate } from "../lib/hierarchy-step";
 import { hypothesisNotice } from "../lib/progress";
 import { completeMessage, judgedNotice } from "../lib/judgement";
+import { itemChangedNotice } from "../lib/item-change";
 import { DailyView, useDaily } from "./components/DailyPanel";
 import { TodoScheduleView, useItemEvents } from "./components/TodoSchedule";
 import { TechoView } from "./components/Techo";
@@ -369,6 +370,12 @@ function AppContent() {
         const judgedMsg = judgedNotice((body as { judged?: unknown }).judged);
         if (judgedMsg) {
           setPlanUpdated(judgedMsg);
+          void it.refresh();
+        }
+        // AI と話して KPI / KDI を変えた (EXP-038)
+        const changedMsg = itemChangedNotice((body as { itemChanged?: unknown }).itemChanged);
+        if (changedMsg) {
+          setPlanUpdated(changedMsg);
           void it.refresh();
         }
         // AI と立てた仮説をノートに残した (EXP-032)
