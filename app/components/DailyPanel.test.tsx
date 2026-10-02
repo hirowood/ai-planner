@@ -22,8 +22,10 @@ describe("「☀️ 今日」のタブ (EXP-020 L5)", () => {
     const src = readFileSync(new URL("../page.tsx", import.meta.url), "utf8");
     expect(src).toContain("[['projects', '📁', 'プロジェクト'], ['schedule', '📅', 'スケジュール'], ['techo', '📒', '手帳']]");
     expect(src).toContain("useState<'projects' | 'schedule' | 'techo'>('projects')");
-    expect(src).toContain("[['tasks', '✅', 'タスク'], ['plan', '📝', 'Plan'], ['notes', '📓', 'ノート']]");
-    expect(src).toContain("useState<'tasks' | 'plan' | 'notes'>('tasks')");
+    // EXP-042: ノートは手帳へ (プロジェクトの中は タスク・Plan)
+    expect(src).toContain("[['tasks', '✅', 'タスク'], ['plan', '📝', 'Plan']]");
+    expect(src).toContain("useState<'tasks' | 'plan'>('tasks')");
+    expect(src).not.toContain('id="project-panel-notes"');
     // プロジェクトのタスクは todos・手帳は reflection
     expect(src).toContain('parts="todos"');
     expect(src).toContain('parts="reflection"');

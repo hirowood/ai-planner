@@ -36,6 +36,8 @@ type Props = {
   onChange(mode: TechoMode, date: string): void;
   /** 日のページ (その日の ToDo と 1 日の記録)。 */
   renderDay(date: string): ReactNode;
+  /** これまでのデータの前に置くもの (ノート・EXP-042) */
+  beforeStats?: ReactNode;
 };
 
 const md = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
@@ -188,7 +190,7 @@ function Stats({ items, logs, notes, today }: { items: PlanItem[]; logs: DailyLo
 }
 
 /** 手帳の画面 (状態は外から)。 */
-export function TechoView({ today, mode, date, items, logs, notes, tasks = [], onChange, renderDay }: Props) {
+export function TechoView({ today, mode, date, items, logs, notes, tasks = [], onChange, renderDay, beforeStats }: Props) {
   // 日付を押すと押したボタンが消えるので、見出しへフォーカスを移す (a11y レビュー)
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const moveFocus = useRef(false);
@@ -242,6 +244,7 @@ export function TechoView({ today, mode, date, items, logs, notes, tasks = [], o
         </>
       )}
       {mode === 'day' && renderDay(date)}
+      {beforeStats}
       <Stats items={items} logs={logs} notes={notes} today={today} />
     </div>
   );

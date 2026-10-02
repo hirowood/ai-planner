@@ -31,14 +31,22 @@ function newestFirst(a: Note, b: Note): number {
  * 選んだプロジェクトのノート (EXP-008)。種類と本文で書き、新しい順に並べる。
  * 消すときは confirm() を使わず、「消す」→「本当に消す」の 2 回押しにする。
  */
-export function NotesPanel({ project, notes, onCreate, onDelete }: {
+export function NotesPanel({ project, notes, onCreate, onDelete, presets = NOTE_KIND_LABEL, defaultKind = 'fact', filters, initialFilter = null }: {
   project: Project;
   notes: Note[];
   onCreate(input: NoteInput): void;
   onDelete(id: string): void;
+  /** 種類の選択肢 (手帳では 仮説・検証結果 を先に・EXP-042) */
+  presets?: Record<string, string>;
+  defaultKind?: string;
+  /** 一覧を種類で絞るボタン (例 ["仮説", "検証結果"])。無ければ出さない */
+  filters?: string[];
+  /** 最初の絞り込み (既定は すべて) */
+  initialFilter?: string | null;
 }) {
   // kind = 既定の値か OTHER。OTHER のときは customKind が種類の名前 (EXP-012)
-  const [kind, setKind] = useState<string>('fact');
+  const [kind, setKind] = useState<string>(defaultKind);
+  const [filter, setFilter] = useState<string | null>(initialFilter);
   const [customKind, setCustomKind] = useState('');
   const [body, setBody] = useState('');
   const [invalid, setInvalid] = useState<string | null>(null);
@@ -64,7 +72,7 @@ export function NotesPanel({ project, notes, onCreate, onDelete }: {
     setBody('');
   };
 
-  const sorted = [...notes].sort(newestFirst);
+  const sorted = [...notes].filter((n) => filter === null || n.kind === filter).sort(newestFirst);
 
   const confirmDelete = (id: string) => {
     setArmedId(null);
@@ -93,7 +101,7 @@ export function NotesPanel({ project, notes, onCreate, onDelete }: {
         <KindPicker
           legend="種類"
           groupName="note-kind"
-          presets={NOTE_KIND_LABEL}
+          presets={presets}
           choice={kind}
           custom={customKind}
           onChoice={setKind}
@@ -120,8 +128,23 @@ export function NotesPanel({ project, notes, onCreate, onDelete }: {
       </form>
 
       <h3 ref={listHeading} tabIndex={-1} id="notes-list-title" className="text-sm font-bold text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
-        ノート ({sorted.length})
+        ノート{filter ? ` (${noteKindLabel(filter)})` : ''} ({sorted.length})
       </h3>
+      {filters && filters.length > 0 && (
+        <div role="group" aria-label="ノートを種類で絞る" className="flex flex-wrap gap-2">
+          {[null, ...filters].map((f) => (
+            <button
+              key={f ?? 'all'}
+              type="button"
+              aria-pressed={filter === f}
+              onClick={() => setFilter(f)}
+              className={`px-3 py-1 rounded-lg border text-sm font-bold ${focusRing} ${filter === f ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'}`}
+            >
+              {f === null ? 'すべて' : noteKindLabel(f)} ({f === null ? notes.length : notes.filter((n) => n.kind === f).length})
+            </button>
+          ))}
+        </div>
+      )}
       <div role="status" className="sr-only">{armedId ? 'もう一度押すと消えます' : ''}</div>
       {sorted.length === 0 ? (
         <p className="text-sm text-gray-700">まだノートがありません。</p>

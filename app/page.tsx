@@ -9,6 +9,7 @@ import { hasTimeMarker, stripTimeMarker } from "../lib/time-input";
 import { TimeDialog } from "./components/TimeDialog";
 import { ProjectPanel, useProjectWorkspace } from "./components/ProjectPanel";
 import { NotesPanel } from "./components/NotesPanel";
+import { HYPOTHESIS_NOTE, RESULT_NOTE, TECHO_NOTE_KINDS } from "../lib/projects";
 import { PlanFields, usePlanStore } from "./components/PlanFields";
 import { PlanTree, useItems } from "./components/PlanTree";
 import { choiceButtons, itemsAddedNotice, parseCandidateList, type Candidate } from "../lib/hierarchy-step";
@@ -119,8 +120,8 @@ function AppContent() {
   const workspace = useProjectWorkspace(Boolean(session));
   // 選んだプロジェクトの中の切り替え (EXP-009)。既定は Plan
   // 既定は「今日」(EXP-020): 毎日開いて Do と Check を回す
-  // プロジェクトの中のタブ (EXP-041): タスク (既定)・Plan・ノート
-  const [projectTab, setProjectTab] = useState<'tasks' | 'plan' | 'notes'>('tasks');
+  // プロジェクトの中のタブ (EXP-041): タスク (既定)・Plan。ノートは手帳へ (EXP-042)
+  const [projectTab, setProjectTab] = useState<'tasks' | 'plan'>('tasks');
   // 選んだプロジェクトの thread "chat" の読み込み中 (EXP-010)
   const [historyLoading, setHistoryLoading] = useState(false);
   // いま会話が属するプロジェクト。遅れて届いた古い読み込みを捨て、保存先を決める
@@ -857,7 +858,7 @@ function AppContent() {
               <div className="flex flex-col gap-4">
                 {/* 選んだプロジェクトの中: タスク (既定)・Plan・ノート (EXP-041) */}
                 <div role="tablist" aria-label="プロジェクトの中身" className="flex gap-2">
-                  {([['tasks', '✅', 'タスク'], ['plan', '📝', 'Plan'], ['notes', '📓', 'ノート']] as const).map(([tab, icon, label]) => (
+                  {([['tasks', '✅', 'タスク'], ['plan', '📝', 'Plan']] as const).map(([tab, icon, label]) => (
                     <button
                       key={tab}
                       type="button"
@@ -908,7 +909,7 @@ function AppContent() {
                       </section>
                     )}
                   </div>
-                ) : projectTab === 'plan' ? (
+                ) : (
                   <div role="tabpanel" id="project-panel-plan" aria-labelledby="project-tab-plan" className="flex flex-col gap-6">
                     <section aria-labelledby="plan-tree-heading" className="flex flex-col gap-3">
                       <h3 id="plan-tree-heading" className="text-base font-bold text-gray-800"><span aria-hidden="true">🌳</span> 階層 (KGI → KPI → KDI → ToDo)</h3>
@@ -938,15 +939,6 @@ function AppContent() {
                         onRegisterCalendar={() => void planStore.registerCalendar()}
                       />
                     </section>
-                  </div>
-                ) : (
-                  <div role="tabpanel" id="project-panel-notes" aria-labelledby="project-tab-notes">
-                    <NotesPanel
-                      project={workspace.selected}
-                      notes={workspace.notes}
-                      onCreate={(input) => void workspace.createNote(input)}
-                      onDelete={(id) => void workspace.deleteNote(id)}
-                    />
                   </div>
                 )}
               </div>
@@ -979,6 +971,21 @@ function AppContent() {
                   notes={workspace.notes}
                   tasks={tasks.tasks}
                   onChange={(mode, date) => setTecho({ mode, date: date === daily.today ? null : date })}
+                  beforeStats={
+                    // 仮説と検証結果のノート (EXP-042)。振り返りと同じ場所で書いて見返す
+                    <section aria-labelledby="techo-notes-heading" className="flex flex-col gap-2 rounded-lg border border-gray-200 bg-white p-3">
+                      <h3 id="techo-notes-heading" className="text-base font-bold text-gray-800"><span aria-hidden="true">📓</span> ノート (仮説・検証結果)</h3>
+                      <NotesPanel
+                        project={workspace.selected}
+                        notes={workspace.notes}
+                        presets={TECHO_NOTE_KINDS}
+                        defaultKind={HYPOTHESIS_NOTE}
+                        filters={[HYPOTHESIS_NOTE, RESULT_NOTE]}
+                        onCreate={(input) => void workspace.createNote(input)}
+                        onDelete={(id) => void workspace.deleteNote(id)}
+                      />
+                    </section>
+                  }
                   renderDay={(date) => (
                     // 手帳の日のページは振り返りだけ (EXP-041)。ToDo は見るだけ
                     <DailyView
