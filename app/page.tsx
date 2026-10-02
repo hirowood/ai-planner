@@ -16,6 +16,8 @@ import { hypothesisNotice } from "../lib/progress";
 import { completeMessage, judgedNotice } from "../lib/judgement";
 import { DailyView, useDaily } from "./components/DailyPanel";
 import { TodoScheduleView, useItemEvents } from "./components/TodoSchedule";
+import { TechoView } from "./components/Techo";
+import type { TechoMode } from "../lib/techo";
 import { eventLabel } from "../lib/todo-event";
 import { parsePlanDraft, PLAN_FIELDS, PLAN_FIELD_LABEL, type PlanDraft } from "../lib/pdca-plan";
 import { greetingFor, startMessage, startChoices, type Choice } from "../lib/greeting";
@@ -128,6 +130,9 @@ function AppContent() {
   // 選んだプロジェクトの階層 (KGI → KPI → KDI → ToDo)
   const it = useItems(workspace.selectedId);
   const daily = useDaily(workspace.selectedId);
+  // 手帳の表示 (EXP-036): 日・週・月と、開いている日 (null = 今日)
+  const [techo, setTecho] = useState<{ mode: TechoMode; date: string | null }>({ mode: 'day', date: null });
+  const techoDate = techo.date ?? daily.today;
   const itemEvents = useItemEvents(workspace.selectedId);
   // 階層の KGI (固定) を Plan の要点に読み取り専用で出す (EXP-018)
   const kgiItem = it.items.find((i) => i.level === 'kgi');
@@ -829,7 +834,7 @@ function AppContent() {
               <div className="flex flex-col gap-4">
                 {/* 選んだプロジェクトの Plan / ノートの切り替え (EXP-009)。既定は Plan */}
                 <div role="tablist" aria-label="プロジェクトの中身" className="flex gap-2">
-                  {([['today', '☀️', '今日'], ['plan', '📝', 'Plan'], ['notes', '📓', 'ノート']] as const).map(([tab, icon, label]) => (
+                  {([['today', '📒', '手帳'], ['plan', '📝', 'Plan'], ['notes', '📓', 'ノート']] as const).map(([tab, icon, label]) => (
                     <button
                       key={tab}
                       type="button"
@@ -846,16 +851,27 @@ function AppContent() {
                 </div>
                 {projectTab === 'today' ? (
                   <div role="tabpanel" id="project-panel-today" aria-labelledby="project-tab-today" className="flex flex-col gap-6">
-                    <DailyView
-                      key={workspace.selected.id}
+                    <TechoView
                       today={daily.today}
+                      mode={techo.mode}
+                      date={techoDate}
+                      items={it.items}
+                      logs={daily.logs}
+                      notes={workspace.notes}
+                      onChange={(mode, date) => setTecho({ mode, date: date === daily.today ? null : date })}
+                      renderDay={(date) => (
+                    <div className="flex flex-col gap-6">
+                    <DailyView
+                      key={`${workspace.selectedId ?? ''}:${date}`}
+                      today={daily.today}
+                      date={date}
                       items={it.items}
                       logs={daily.logs}
                       problem={daily.problem}
                       saving={daily.saving}
-                      saved={daily.savedDay === daily.today}
+                      saved={daily.savedDay === date}
                       onUpdateItem={(id, p) => void it.update(id, p)}
-                      onSave={(d) => void daily.save(daily.today, d)}
+                      onSave={(d) => void daily.save(date, d)}
                       onAsk={(text) => { void handleSendMessage(text); setTimeout(() => inputRef.current?.focus(), 0); }}
                       onComplete={(item) => {
                         // 実行 (判定待ち) にしてから、会話で判定を頼む (EXP-034)
@@ -864,6 +880,7 @@ function AppContent() {
                       }}
                       eventLabels={Object.fromEntries(itemEvents.events.map((e) => [e.itemId, eventLabel(e)]))}
                     />
+                    {date === daily.today && (
                     <TodoScheduleView
                       today={daily.today}
                       items={it.items}
@@ -872,6 +889,10 @@ function AppContent() {
                       problem={itemEvents.problem}
                       done={itemEvents.done}
                       onSchedule={(item, start, end) => void itemEvents.schedule(item, start, end)}
+                    />
+                    )}
+                    </div>
+                      )}
                     />
                   </div>
                 ) : projectTab === 'plan' ? (

@@ -90,6 +90,20 @@ describe("/api/daily (EXP-020 L3)", () => {
     expect(db.state.calls).toHaveLength(0);
     onePerfLine(400);
   });
+  it("GET ?days= は 1〜62 (既定 7)・それ以外は 400 で DB を呼ばない (EXP-036 L3)", async () => {
+    for (const bad of ["63", "0", "abc", "7.5", "-1"]) {
+      db.state.calls = [];
+      expect((await get(`?projectId=${PID}&days=${bad}`)).status).toBe(400);
+      expect(db.state.calls).toHaveLength(0);
+    }
+    db.state.calls = [];
+    expect((await get(`?projectId=${PID}&days=62`)).status).toBe(200);
+    const reads = db.state.calls.filter((c) => /from daily_logs/.test(db.text(c)));
+    expect(reads[0].values).toEqual(expect.arrayContaining([EMAIL, PID, 62]));
+    db.state.calls = [];
+    await get(`?projectId=${PID}`);
+    expect(db.state.calls.filter((c) => /from daily_logs/.test(db.text(c)))[0].values).toContain(7);
+  });
   it("GET の projectId が UUID でなければ 400", async () => {
     expect((await get("?projectId=p1")).status).toBe(400);
   });

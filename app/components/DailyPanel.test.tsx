@@ -21,7 +21,8 @@ describe("「☀️ 今日」のタブ (EXP-020 L5)", () => {
   it("今日のタブが既定 (page.tsx)", () => {
     const src = readFileSync(new URL("../page.tsx", import.meta.url), "utf8");
     expect(src).toContain("useState<'today' | 'plan' | 'notes'>('today')");
-    expect(src).toContain("['today', '☀️', '今日']");
+    // EXP-036 でタブの名前を「📒 手帳」に (中身は手帳の日のページ)
+    expect(src).toContain("['today', '📒', '手帳']");
   });
   it("〇△× は fieldset と legend のラジオ・良かったこと 3 つ・明日はこうする", () => {
     const html = render([]);

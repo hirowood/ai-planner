@@ -4,7 +4,7 @@ import { authOptions } from "../auth/[...nextauth]/route";
 import { startPerf } from "../../../lib/perf";
 import { DbNotConfigured, getSql } from "../../../lib/db";
 import { isUuid } from "../../../lib/projects";
-import { dailyFilled, parseDailyInput } from "../../../lib/daily";
+import { DAILY_DAYS_MAX, DAILY_LIMIT, dailyFilled, parseDailyInput } from "../../../lib/daily";
 import { todayJst } from "../../../lib/smart";
 import { listDailyLogs, upsertDailyLog } from "../../../lib/repo";
 
@@ -61,12 +61,19 @@ async function handleGet(req: Request, perf: Perf): Promise<NextResponse> {
   const owner = await ownerOf();
   if (!owner) return unauthorized();
 
-  const projectId = new URL(req.url).searchParams.get("projectId");
+  const params = new URL(req.url).searchParams;
+  const projectId = params.get("projectId");
   if (!isUuid(projectId)) return NextResponse.json({ error: "projectId が正しくありません" }, { status: 400 });
+  // 読む日数 (EXP-036: 手帳の月の表のため最大 62 日)。無ければ 7
+  const daysRaw = params.get("days");
+  const days = daysRaw === null ? DAILY_LIMIT : /^\d{1,2}$/.test(daysRaw) ? Number(daysRaw) : NaN;
+  if (!Number.isInteger(days) || days < 1 || days > DAILY_DAYS_MAX) {
+    return NextResponse.json({ error: "days は 1〜62 にしてください" }, { status: 400 });
+  }
 
   try {
     const sql = getSql();
-    const logs = await perf.time("db_ms", () => listDailyLogs(sql, owner, projectId));
+    const logs = await perf.time("db_ms", () => listDailyLogs(sql, owner, projectId, days));
     perf.set({ row_count: logs.length });
     return NextResponse.json({ logs, today: todayJst() });
   } catch (error: unknown) {

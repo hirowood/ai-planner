@@ -28,6 +28,8 @@ export const TOMORROW_CHARS = 200;
 export const BACKFILL_DAYS = 7;
 /** 一覧と AI に渡す日数。 */
 export const DAILY_LIMIT = 7;
+/** 手帳の月の表のために読める最大の日数 (EXP-036)。 */
+export const DAILY_DAYS_MAX = 62;
 /** 今日の ToDo の目安 (KDI 3 つ × KDI ごとに 3 つ = 1 日 9 つほど・本人・EXP-031)。 */
 export const TODAY_TODO_TARGET = 9;
 
