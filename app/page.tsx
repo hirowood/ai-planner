@@ -12,6 +12,7 @@ import { NotesPanel } from "./components/NotesPanel";
 import { PlanFields, usePlanStore } from "./components/PlanFields";
 import { PlanTree, useItems } from "./components/PlanTree";
 import { itemsAddedNotice } from "../lib/hierarchy-step";
+import { hypothesisNotice } from "../lib/progress";
 import { DailyView, useDaily } from "./components/DailyPanel";
 import { TodoScheduleView, useItemEvents } from "./components/TodoSchedule";
 import { eventLabel } from "../lib/todo-event";
@@ -347,6 +348,12 @@ function AppContent() {
         if (added) {
           setPlanUpdated(added);
           void it.refresh();
+        }
+        // AI と立てた仮説をノートに残した (EXP-032)
+        const hyp = hypothesisNotice((body as { hypothesisSaved?: unknown }).hypothesisSaved);
+        if (hyp) {
+          setPlanUpdated(added ? `${added}・${hyp}` : hyp);
+          void workspace.reloadNotes();
         }
         if ((body as { timePrompted?: unknown }).timePrompted === true) {
           dialogOpened = true;

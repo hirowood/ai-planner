@@ -27,6 +27,7 @@ export type PerfLine = {
   choices_count?: number; // 返した答えの候補の数 (EXP-023)。候補の中身は持たない
   items_added?: number; // AI が階層に足した項目の数 (EXP-019)。項目の中身は持たない
   context_days?: number; // AI に渡した 1 日の記録の件数 (EXP-020)。中身は持たない
+  hypothesis_saved?: boolean; // AI と立てた仮説をノートに残したか (EXP-032)。中身は持たない
 };
 
 // 真偽・数を出すための検査だけに使う。ここで見た本文はどこにも残さない
@@ -44,7 +45,8 @@ type KnownField =
   | "context_cycles"
   | "choices_count"
   | "items_added"
-  | "context_days";
+  | "context_days"
+  | "hypothesis_saved";
 
 const round = (ms: number): number => Math.round(ms * 10) / 10;
 
@@ -67,6 +69,7 @@ export function formatPerfLine(line: PerfLine): string {
   if (line.choices_count !== undefined) out.choices_count = line.choices_count;
   if (line.items_added !== undefined) out.items_added = line.items_added;
   if (line.context_days !== undefined) out.context_days = line.context_days;
+  if (line.hypothesis_saved !== undefined) out.hypothesis_saved = line.hypothesis_saved;
   return `[perf] ${JSON.stringify(out)}`;
 }
 
@@ -101,6 +104,7 @@ export function startPerf(route: string, parts: PerfPart[] = []) {
       if (fields.choices_count !== undefined) known.choices_count = fields.choices_count;
       if (fields.items_added !== undefined) known.items_added = fields.items_added;
       if (fields.context_days !== undefined) known.context_days = fields.context_days;
+      if (fields.hypothesis_saved !== undefined) known.hypothesis_saved = fields.hypothesis_saved;
     },
 
     /** 外部呼び出し 1 回を計測して `part` に加算する。 */

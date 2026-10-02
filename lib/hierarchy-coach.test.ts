@@ -8,7 +8,7 @@ import { todayJst } from "./smart";
 const db = vi.hoisted(() => {
   type Call = { strings: string[]; values: unknown[] };
   type Row = Record<string, unknown>;
-  const state = { items: [] as Row[], calls: [] as Call[], refuseInsert: false };
+  const state = { items: [] as Row[], calls: [] as Call[], refuseInsert: false, notes: [] as Row[], failMessages: false };
   const text = (c: Call) => c.strings.join(" ").toLowerCase().replace(/\s+/g, " ");
   const T = "2026-10-01T00:00:00.000Z";
   const sql = async (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -24,12 +24,17 @@ const db = vi.hoisted(() => {
         due_date: values[6], status: values[7], created_at: T, updated_at: T,
       }];
     }
-    if (/insert into messages/.test(q)) return [{ id: "m" }];
+    if (/insert into notes/.test(q)) return [{ id: "n-1", project_id: values[1], kind: values[2], body: values[3], created_at: T }];
+    if (/insert into messages/.test(q)) {
+      if (state.failMessages) throw Object.assign(new Error("db down"), { code: "57P01" });
+      return [{ id: "m" }];
+    }
     if (/insert into cycles|update cycles/.test(q)) {
       return [{ id: "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", project_id: values[1], phase: "plan", plan: {}, created_at: T, updated_at: T }];
     }
     if (/from plan_items/.test(q)) return state.items;
-    if (/from notes|from messages|from cycles/.test(q)) return [];
+    if (/from notes/.test(q)) return state.notes;
+    if (/from messages|from cycles/.test(q)) return [];
     if (/from projects/.test(q)) {
       return [{ id: "3f2b8c1e-9a4d-4e6f-8b2a-1c5d7e9f0a3b", owner: "x", name: "英語", category: "learning", purpose: "", created_at: T, archived_at: null }];
     }
@@ -74,6 +79,8 @@ describe("POST /api/coach — 階層の次の段 (EXP-019 L3)", () => {
     db.state.items = [row(KGI_ID, "kgi", null, KGI_CANARY)];
     db.state.calls = [];
     db.state.refuseInsert = false;
+    db.state.notes = [];
+    db.state.failMessages = false;
   });
   afterEach(() => perf.restore());
 
@@ -178,6 +185,58 @@ describe("POST /api/coach — 階層の次の段 (EXP-019 L3)", () => {
     const ins = inserts();
     expect(ins).toHaveLength(1);
     expect(ins[0].values).toEqual(expect.arrayContaining([KDI_A, "todo", todayJst(), "30 個を言える"]));
+  });
+
+  it("判定と調整の節・進み具合が <Records> の中・同意した仮説をノート (仮説) に残す (EXP-032 L2・L3)", async () => {
+    const HYP = "canary-hyp-朝にやれば続くはず-4c7e";
+    geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [], hypothesis: `  ${HYP} ` });
+    const body = await (await POST(post())).json();
+    const p = geminiState.lastPrompt ?? "";
+    const rec = p.slice(p.indexOf("<Records>"), p.indexOf("</Records>"));
+    expect(rec).toContain("#### 進み具合と期限 (最近 7 日)");
+    expect(rec).toContain(`- KGI: ${KGI_CANARY} / 期日なし`);
+    expect(p).toContain("**できた所から先に**伝え");
+    expect(p).toContain("「KPI / 行動 / そのまま続ける」");
+    expect(p).toContain("「〜すれば、〜になるはず」");
+    expect(p).not.toContain("課題 / 行動 / そのまま続ける");
+    expect(body.hypothesisSaved).toBe(true);
+    const ins = db.state.calls.filter((c) => /insert into notes/.test(db.text(c)));
+    expect(ins).toHaveLength(1);
+    expect(ins[0].values).toEqual(expect.arrayContaining([EMAIL, PID, "仮説", HYP]));
+    expect(ins[0].strings.join("")).not.toContain(EMAIL);
+    expect(perf.parsed().find((l) => l.route === "api/coach")).toMatchObject({ hypothesis_saved: true });
+    const logs = perf.all.join(" ");
+    for (const c of [EMAIL, HYP]) expect(logs).not.toContain(c);
+  });
+
+  it.each([
+    ["空", ""],
+    ["空白だけ", "   "],
+    ["301 字", "あ".repeat(301)],
+    ["文字列でない", ["x"]],
+    ["無い", undefined],
+  ])("仮説が %s なら残さない (EXP-032 L3)", async (_l, hypothesis) => {
+    geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [], hypothesis });
+    const body = await (await POST(post())).json();
+    expect(body.hypothesisSaved).toBe(false);
+    expect(db.state.calls.filter((c) => /insert into notes/.test(db.text(c)))).toHaveLength(0);
+    expect(perf.parsed().find((l) => l.route === "api/coach")).toMatchObject({ hypothesis_saved: false });
+  });
+
+  it("最近のノートに同じ仮説があれば残さない (レビュー W1)", async () => {
+    db.state.notes = [{ id: "n-0", project_id: PID, kind: "仮説", body: "朝にやれば続くはず", created_at: T }];
+    geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [], hypothesis: "朝にやれば続くはず" });
+    const body = await (await POST(post())).json();
+    expect(body.hypothesisSaved).toBe(false);
+    expect(db.state.calls.filter((c) => /insert into notes/.test(db.text(c)))).toHaveLength(0);
+  });
+
+  it("会話の保存が失敗したら仮説は残さない (送り直しで 2 つにならない・レビュー W2)", async () => {
+    db.state.failMessages = true;
+    geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [], hypothesis: "朝にやれば続くはず" });
+    const res = await POST(post());
+    expect(res.status).toBe(500);
+    expect(db.state.calls.filter((c) => /insert into notes/.test(db.text(c)))).toHaveLength(0);
   });
 
   it("DB が作るのを断った (親が他人など) ものは itemsAdded に入れない", async () => {
