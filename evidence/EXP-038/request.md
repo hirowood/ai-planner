@@ -42,3 +42,12 @@ Status: **登録済み (変更より前の commit)** / Date: 2026-10-02
 | **定着** | 本人の使った 14 日のうち 1 回以上 `kpi_changed: true` があり、一番の困りごとに「KPI を直すのが面倒」を挙げない |
 | **巻き戻し** | 同意していないのに KPI が変わった・違う KPI が変わった、と本人が報告した (Human Gate) |
 | **判定不能** | 14 日以内に使わない |
+
+## 5. 追記 (変更より前・2026-10-02・本人「PDCA で毎日 ToDo を設定して調整して、KDI も都度調整する。評価と調整をして ToDo や KDI など AI と一緒に仮説とデータを取っていく」)
+
+- 変えられるものを **KPI と KDI** にする (KGI は固定のまま)
+- 番号: KPI は K1・K2…・KDI は D1・D2…(KDI は棚上げも含め古い順)
+- `parseKpiChange` を `parseItemChange(x, refs, kgiDue)` とし、ref が K か D の番号・KDI の期日も KGI の期限以下
+- 調整の節: 判定と振り返り (EXP-032・034) の後、伸長 / 改善に合わせて KDI (行動の量・頻度) を変える提案もする。同意したら `"itemChange": {"ref": "D1", ...}` (KPI も同じ形で `"ref": "K1"`)
+- 返事は `itemChanged: { level, before, after }`・`[perf]` は `item_changed` (真偽)
+- L1・L2 は KPI と KDI の両方で確かめる
