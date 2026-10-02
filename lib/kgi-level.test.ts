@@ -46,13 +46,15 @@ describe("KGI (成果) に揃える (EXP-029)", () => {
     const p = geminiState.lastPrompt ?? "";
     expect(p).toContain("期限までにどうなっていたいか (成果)");
     expect(p).toContain("それは後で決める KDI (行動の目標) です");
-    expect(p).toContain("KGI → KPI (途中の指標) → KDI (行動の目標) → ToDo");
+    // EXP-037: 作るときに KPI (仮置き) まで決める
+    expect(p).toContain("階層は KGI → KPI → KDI (行動の目標) → ToDo の順で、KDI から下はプロジェクトを作った後に決めます");
   });
 
-  it("L3: 作った直後の一言は KPI へ案内する", () => {
+  it("L3: 作った直後の一言は KDI へ案内する (EXP-037 が EXP-029 の「KPI へ」を置き換え)", () => {
     const m = afterCreateMessage("英語で会議");
     expect(m).toContain("『英語で会議』の KGI ができました (固定)");
-    expect(m).toContain("次は、期限までに KGI を達成できているかを途中で測る KPI を決めましょう");
+    expect(m).toContain("KPI は仮置きで、あとで話しながら変えられます");
+    expect(m).toContain("次は、KPI を達成するための KDI (行動の量・頻度) を決めましょう");
     expect([...m].filter((c) => c === "？").length).toBe(1);
   });
 });

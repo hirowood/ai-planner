@@ -5,6 +5,8 @@ import {
   GOODS_MAX,
   GOOD_CHARS,
   MARKS,
+  BACKFILL_DAYS,
+  DAILY_DAYS_MAX,
   MARK_LABEL,
   TODAY_TODO_TARGET,
   TOMORROW_CHARS,
@@ -17,6 +19,7 @@ import { STATUS_LABEL, STATUS_ORDER, type ItemPatch, type ItemStatus, type PlanI
 import { todayJst } from '../../lib/smart';
 import { TODO_PER_KDI as TODO_PER_KDI_DAY } from '../../lib/hierarchy-step';
 import { completeMessage } from '../../lib/judgement';
+import { daysBetween } from '../../lib/progress';
 
 /** 今日の ToDo を親の KDI ごとにまとめる (KDI の古い順・親の無いものは最後) (EXP-031)。 */
 export function groupByKdi(todos: PlanItem[], items: PlanItem[]): { key: string; label: string; todos: PlanItem[] }[] {
@@ -73,7 +76,8 @@ export function useDaily(projectId: string | null): {
 
   const load = useCallback(async (pid: string) => {
     try {
-      const res = await fetch(`/api/daily?projectId=${encodeURIComponent(pid)}`);
+      // 手帳の月の表のため 62 日ぶん読む (EXP-036)
+      const res = await fetch(`/api/daily?projectId=${encodeURIComponent(pid)}&days=${DAILY_DAYS_MAX}`);
       const body: unknown = await res.json().catch(() => null);
       if (currentId.current !== pid) return;
       if (!res.ok) {
@@ -140,6 +144,8 @@ type ViewProps = {
   onComplete?(item: PlanItem): void;
   /** ToDo の id → 予定の印 (EXP-030)。 */
   eventLabels?: Record<string, string>;
+  /** 手帳で開いている日 (EXP-036)。無ければ今日。 */
+  date?: string;
 };
 
 /** ToDo の行の「▶ 始める」「✓ 完了」「判定待ち」(EXP-034)。 */
@@ -174,31 +180,49 @@ function TodoAction({ item, onUpdateItem, onAsk, onComplete }: {
   return null;
 }
 
+/** 書き直せない日 (8 日以上前・先の日) の 1 日の記録を見るだけで出す (EXP-036)。 */
+function ReadOnlyLog({ log, future }: { log: DailyLog | undefined; future: boolean }) {
+  if (future) return <p className="text-sm text-gray-700">まだ先の日です。その日になったら振り返りを書けます。</p>;
+  if (!log) return <p className="text-sm text-gray-700">この日の記録はありません。</p>;
+  return (
+    <dl className="flex flex-col gap-1 text-sm">
+      <div className="flex gap-2"><dt className="w-24 shrink-0 text-gray-600">どうだったか</dt><dd>{MARK_LABEL[log.mark]}</dd></div>
+      <div className="flex gap-2"><dt className="w-24 shrink-0 text-gray-600">良かったこと</dt><dd className="min-w-0 break-words">{log.goods.length > 0 ? log.goods.join(' / ') : 'なし'}</dd></div>
+      <div className="flex gap-2"><dt className="w-24 shrink-0 text-gray-600">明日はこうする</dt><dd className="min-w-0 break-words">{log.tomorrow || 'なし'}</dd></div>
+    </dl>
+  );
+}
+
 /** 画面だけ (状態は外から)。描画のテストはこれを使う。 */
-export function DailyView({ today, items, logs, problem, saving, saved, onUpdateItem, onSave, onAsk, onComplete, eventLabels = {} }: ViewProps) {
-  const todayLog = logs.find((l) => l.day === today);
+export function DailyView({ today, items, logs, problem, saving, saved, onUpdateItem, onSave, onAsk, onComplete, eventLabels = {}, date }: ViewProps) {
+  // 手帳で開いている日 (EXP-036)。今日のときだけ始める・完了・会話のボタンを出す
+  const day = date ?? today;
+  const isToday = day === today;
+  const ago = daysBetween(day, today);
+  const editable = ago !== null && ago >= 0 && ago <= BACKFILL_DAYS;
+  const todayLog = logs.find((l) => l.day === day);
   const [draft, setDraft] = useState<Draft>(() => draftFrom(todayLog));
-  const [loadedFor, setLoadedFor] = useState<string | null>(todayLog ? `${today}:${todayLog.updatedAt}` : null);
+  const [loadedFor, setLoadedFor] = useState<string | null>(todayLog ? `${day}:${todayLog.updatedAt}` : null);
   // 読み込みが後から届いたら、まだ書いていない欄に今日の記録を入れる
-  const key = todayLog ? `${today}:${todayLog.updatedAt}` : null;
+  const key = todayLog ? `${day}:${todayLog.updatedAt}` : `${day}:none`;
   if (key !== loadedFor) {
     setLoadedFor(key);
-    if (todayLog) setDraft(draftFrom(todayLog));
+    setDraft(draftFrom(todayLog));
   }
 
-  const todos = todayTodos(items, today);
+  const todos = todayTodos(items, day);
   const groups = groupByKdi(todos, items);
-  const others = logs.filter((l) => l.day !== today);
+  const others = logs.filter((l) => l.day !== day);
 
   return (
     <div className="flex flex-col gap-6">
       <section aria-labelledby="today-todos-heading" className="flex flex-col gap-3">
         <h3 id="today-todos-heading" className="text-base font-bold text-gray-800">
-          <span aria-hidden="true">☀️</span> 今日の ToDo ({today})
+          <span aria-hidden="true">☀️</span> {isToday ? `今日の ToDo (${today})` : `この日の ToDo (${day})`}
         </h3>
-        <p className="text-sm text-gray-600">目安: KDI ごとに {TODO_PER_KDI_DAY} つ・1 日 {TODAY_TODO_TARGET} つほど (今 {todos.length} つ)</p>
+        {isToday && <p className="text-sm text-gray-600">目安: KDI ごとに {TODO_PER_KDI_DAY} つ・1 日 {TODAY_TODO_TARGET} つほど (今 {todos.length} つ)</p>}
         {todos.length === 0 && (
-          <p className="text-sm text-gray-700">今日が期日の ToDo はまだありません。会話で KDI から今日の ToDo を決めましょう。</p>
+          <p className="text-sm text-gray-700">{isToday ? '今日が期日の ToDo はまだありません。会話で KDI から今日の ToDo を決めましょう。' : 'この日が期日の ToDo はありません。'}</p>
         )}
         {groups.map((g) => (
           <div key={g.key} className="flex flex-col gap-2">
@@ -211,7 +235,7 @@ export function DailyView({ today, items, logs, problem, saving, saved, onUpdate
                     {eventLabels[t.id] && <span className="ml-2 text-green-800">{eventLabels[t.id]}</span>}
                     {t.target && <span className="block text-gray-600">判定基準: {t.target}</span>}
                   </span>
-                  <TodoAction item={t} onUpdateItem={onUpdateItem} onAsk={onAsk} onComplete={onComplete} />
+                  {isToday && <TodoAction item={t} onUpdateItem={onUpdateItem} onAsk={onAsk} onComplete={onComplete} />}
                   <select
                     aria-label={`『${t.title}』の状態`}
                     value={t.status}
@@ -227,20 +251,22 @@ export function DailyView({ today, items, logs, problem, saving, saved, onUpdate
             </ul>
           </div>
         ))}
-        {todos.length < TODAY_TODO_TARGET && (
+        {isToday && todos.length < TODAY_TODO_TARGET && (
           <button type="button" onClick={() => onAsk(ASK_TODAY_TODOS)} className={`${buttonClass} self-start bg-white text-blue-700 border-blue-300 hover:bg-blue-50`}>
             {ASK_TODAY_TODOS}
           </button>
         )}
-        {todos.length > TODAY_TODO_TARGET && (
+        {isToday && todos.length > TODAY_TODO_TARGET && (
           <p className="text-sm text-amber-900">今日の ToDo が {todos.length} つあります。{TODAY_TODO_TARGET} つほどに絞ると回しやすいです。</p>
         )}
       </section>
 
       <section aria-labelledby="today-check-heading" className="flex flex-col gap-3">
         <h3 id="today-check-heading" className="text-base font-bold text-gray-800">
-          <span aria-hidden="true">🌙</span> 今日の振り返り
+          <span aria-hidden="true">🌙</span> {isToday ? '今日の振り返り' : 'この日の振り返り'}
         </h3>
+        {!editable && <ReadOnlyLog log={todayLog} future={ago !== null && ago < 0} />}
+        {editable && (
         <form
           className="flex flex-col gap-3"
           onSubmit={(e) => {
@@ -251,7 +277,7 @@ export function DailyView({ today, items, logs, problem, saving, saved, onUpdate
           }}
         >
           <fieldset className="flex flex-col gap-2">
-            <legend className="text-sm font-bold text-gray-800">今日はどうでしたか？</legend>
+            <legend className="text-sm font-bold text-gray-800">{isToday ? '今日はどうでしたか？' : 'この日はどうでしたか？'}</legend>
             <div className="flex gap-2">
               {MARKS.map((m) => (
                 <label key={m} className={`${buttonClass} relative flex-1 text-center cursor-pointer has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blue-500 ${draft.mark === m ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'}`}>
@@ -299,15 +325,16 @@ export function DailyView({ today, items, logs, problem, saving, saved, onUpdate
             aria-describedby={!draft.mark ? 'daily-save-hint' : undefined}
             className={`${buttonClass} ${!draft.mark || saving ? 'bg-gray-300 border-gray-300 text-gray-600 cursor-not-allowed' : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'}`}
           >
-            {saving ? '保存中…' : todayLog ? '今日の記録を上書きする' : '今日の記録を保存する'}
+            {saving ? '保存中…' : `${isToday ? '今日' : 'この日'}の記録を${todayLog ? '上書きする' : '保存する'}`}
           </button>
           {!draft.mark && <p id="daily-save-hint" className="text-sm text-gray-600">〇△× を選ぶと保存できます</p>}
         </form>
+        )}
         <div role="status" className="flex flex-col gap-2">
           {problem && <p className="p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-sm">{problem}</p>}
           {saved && !problem && (
             <>
-              <p className="text-sm text-gray-700">今日の記録を保存しました</p>
+              <p className="text-sm text-gray-700">{isToday ? '今日' : 'この日'}の記録を保存しました</p>
               <button type="button" onClick={() => onAsk(ASK_COMMENT)} className={`${buttonClass} self-start bg-white text-blue-700 border-blue-300 hover:bg-blue-50`}>
                 AI にひとことをもらう
               </button>
@@ -322,7 +349,7 @@ export function DailyView({ today, items, logs, problem, saving, saved, onUpdate
           <p className="text-sm text-gray-700">まだ記録がありません</p>
         ) : (
           <ul className="flex flex-col gap-1 text-sm text-gray-800">
-            {logs.map((l) => (
+            {logs.slice(0, 7).map((l) => (
               <li key={l.day}>
                 {l.day} {MARK_LABEL[l.mark]}・良かったこと {l.goods.length} つ
               </li>

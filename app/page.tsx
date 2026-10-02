@@ -14,14 +14,18 @@ import { PlanTree, useItems } from "./components/PlanTree";
 import { choiceButtons, itemsAddedNotice, parseCandidateList, type Candidate } from "../lib/hierarchy-step";
 import { hypothesisNotice } from "../lib/progress";
 import { completeMessage, judgedNotice } from "../lib/judgement";
+import { itemChangedNotice } from "../lib/item-change";
 import { DailyView, useDaily } from "./components/DailyPanel";
 import { TodoScheduleView, useItemEvents } from "./components/TodoSchedule";
+import { TechoView } from "./components/Techo";
+import type { TechoMode } from "../lib/techo";
 import { eventLabel } from "../lib/todo-event";
 import { parsePlanDraft, PLAN_FIELDS, PLAN_FIELD_LABEL, type PlanDraft } from "../lib/pdca-plan";
 import { greetingFor, startMessage, startChoices, type Choice } from "../lib/greeting";
 import { StartChoices } from "./components/StartChoices";
 import { AnswerChoices } from "./components/AnswerChoices";
 import { SmartPanel } from "./components/SmartPanel";
+import { parseKpiDrafts, setupKpisReady, type KpiDraft } from "../lib/setup-kpi";
 import { QuickReplies } from "./components/QuickReplies";
 import { buildQuickReplies } from "../lib/quick-replies";
 import { DEFAULT_START_CHOICES, OPENING, afterCreateMessage } from "../lib/setup-start";
@@ -128,6 +132,9 @@ function AppContent() {
   // 選んだプロジェクトの階層 (KGI → KPI → KDI → ToDo)
   const it = useItems(workspace.selectedId);
   const daily = useDaily(workspace.selectedId);
+  // 手帳の表示 (EXP-036): 日・週・月と、開いている日 (null = 今日)
+  const [techo, setTecho] = useState<{ mode: TechoMode; date: string | null }>({ mode: 'day', date: null });
+  const techoDate = techo.date ?? daily.today;
   const itemEvents = useItemEvents(workspace.selectedId);
   // 階層の KGI (固定) を Plan の要点に読み取り専用で出す (EXP-018)
   const kgiItem = it.items.find((i) => i.level === 'kgi');
@@ -142,6 +149,8 @@ function AppContent() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   // 会話で SMART を決めて新しいプロジェクトを作るモード (EXP-018)。null なら通常
   const [setupDraft, setSetupDraft] = useState<SmartDraft | null>(null);
+  // 作るときの KPI (仮置き・EXP-037)
+  const [setupKpis, setSetupKpis] = useState<KpiDraft[]>([]);
   const [creatingProject, setCreatingProject] = useState(false);
   // 作った直後に会話へ出す一言 (EXP-029)。そのプロジェクトの会話を読み込んだ後に足す (effect から最新を読むため ref)
   const pendingAfterCreate = useRef<string | null>(null);
@@ -274,6 +283,7 @@ function AppContent() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             draft: setupDraft,
+            kpis: setupKpis.filter((k) => k.title.trim() !== ''),
             history: messages.slice(-20).map((m) => ({ role: m.role, content: m.content })),
             message: userMessage.content,
           }),
@@ -301,6 +311,8 @@ function AppContent() {
         setAnswerChoices(parseChoices((body as { choices?: unknown }).choices));
         const next = parseSmartDraft((body as { draft?: unknown }).draft);
         if (next) setSetupDraft(next);
+        const nextKpis = parseKpiDrafts((body as { kpis?: unknown }).kpis, next?.timeBound ?? '', todayJst());
+        if (nextKpis.length > 0) setSetupKpis(nextKpis);
       } catch (error: unknown) {
         console.error("Setup Error:", error instanceof Error ? error.name : typeof error);
         setChatProblem('返事を受け取れませんでした。もう一度送ってください');
@@ -358,6 +370,12 @@ function AppContent() {
         const judgedMsg = judgedNotice((body as { judged?: unknown }).judged);
         if (judgedMsg) {
           setPlanUpdated(judgedMsg);
+          void it.refresh();
+        }
+        // AI と話して KPI / KDI を変えた (EXP-038)
+        const changedMsg = itemChangedNotice((body as { itemChanged?: unknown }).itemChanged);
+        if (changedMsg) {
+          setPlanUpdated(changedMsg);
           void it.refresh();
         }
         // AI と立てた仮説をノートに残した (EXP-032)
@@ -482,6 +500,7 @@ function AppContent() {
   // 作成モードをやめる (下書きは捨てる・データベースには何も書いていない)
   const exitSetup = () => {
     setSetupDraft(null);
+    setSetupKpis([]);
     setMessages([]);
     setAnswerChoices([]);
   };
@@ -495,7 +514,7 @@ function AppContent() {
       const res = await fetch('/api/setup/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draft: setupDraft }),
+        body: JSON.stringify({ draft: setupDraft, kpis: setupKpis.filter((k) => k.title.trim() !== '') }),
       });
       const body: unknown = await res.json().catch(() => null);
       const project = (body as { project?: { id?: unknown; name?: unknown } } | null)?.project;
@@ -505,11 +524,12 @@ function AppContent() {
       }
       await workspace.loadProjects();
       setSetupDraft(null);
+      setSetupKpis([]);
       setAnswerChoices([]);
       workspace.select(project.id);
       // 作った直後は KPI へ案内する (EXP-029)。会話の読み込みが空でもこの一言が残るよう、選んだ後に置く
       pendingAfterCreate.current = afterCreateMessage(typeof project.name === 'string' ? project.name : '');
-      setPlanUpdated(`『${typeof project.name === 'string' ? project.name : ''}』を作りました。KGI は固定されました`);
+      setPlanUpdated(`『${typeof project.name === 'string' ? project.name : ''}』を作りました。KGI は固定・KPI は仮置きです`);
     } catch (error: unknown) {
       console.error("Setup create Error:", error instanceof Error ? error.name : typeof error);
       setChatProblem('プロジェクトを作れませんでした');
@@ -531,6 +551,7 @@ function AppContent() {
         // 会話で SMART を決めて作る (EXP-018)。手で作る欄はプロジェクトのタブに残る
         setSideTab('projects');
         setSetupDraft({ ...EMPTY_SMART });
+        setSetupKpis([]);
         // まず既定の一言と候補を出し、過去の傾向から作った一言と候補が届いたら差し替える (EXP-027)
         setMessages([{ role: 'assistant', content: OPENING }]);
         setAnswerChoices(DEFAULT_START_CHOICES);
@@ -793,7 +814,9 @@ function AppContent() {
           <SmartPanel
             draft={setupDraft}
             onChange={setSetupDraft}
-            ready={isSmartReady(setupDraft, todayJst())}
+            ready={isSmartReady(setupDraft, todayJst()) && setupKpisReady(setupKpis, setupDraft.timeBound)}
+            kpis={setupKpis}
+            onKpisChange={setSetupKpis}
             creating={creatingProject}
             onCreate={() => void createFromSetup()}
             onCancel={exitSetup}
@@ -829,7 +852,7 @@ function AppContent() {
               <div className="flex flex-col gap-4">
                 {/* 選んだプロジェクトの Plan / ノートの切り替え (EXP-009)。既定は Plan */}
                 <div role="tablist" aria-label="プロジェクトの中身" className="flex gap-2">
-                  {([['today', '☀️', '今日'], ['plan', '📝', 'Plan'], ['notes', '📓', 'ノート']] as const).map(([tab, icon, label]) => (
+                  {([['today', '📒', '手帳'], ['plan', '📝', 'Plan'], ['notes', '📓', 'ノート']] as const).map(([tab, icon, label]) => (
                     <button
                       key={tab}
                       type="button"
@@ -846,16 +869,27 @@ function AppContent() {
                 </div>
                 {projectTab === 'today' ? (
                   <div role="tabpanel" id="project-panel-today" aria-labelledby="project-tab-today" className="flex flex-col gap-6">
-                    <DailyView
-                      key={workspace.selected.id}
+                    <TechoView
                       today={daily.today}
+                      mode={techo.mode}
+                      date={techoDate}
+                      items={it.items}
+                      logs={daily.logs}
+                      notes={workspace.notes}
+                      onChange={(mode, date) => setTecho({ mode, date: date === daily.today ? null : date })}
+                      renderDay={(date) => (
+                    <div className="flex flex-col gap-6">
+                    <DailyView
+                      key={`${workspace.selectedId ?? ''}:${date}`}
+                      today={daily.today}
+                      date={date}
                       items={it.items}
                       logs={daily.logs}
                       problem={daily.problem}
                       saving={daily.saving}
-                      saved={daily.savedDay === daily.today}
+                      saved={daily.savedDay === date}
                       onUpdateItem={(id, p) => void it.update(id, p)}
-                      onSave={(d) => void daily.save(daily.today, d)}
+                      onSave={(d) => void daily.save(date, d)}
                       onAsk={(text) => { void handleSendMessage(text); setTimeout(() => inputRef.current?.focus(), 0); }}
                       onComplete={(item) => {
                         // 実行 (判定待ち) にしてから、会話で判定を頼む (EXP-034)
@@ -864,6 +898,7 @@ function AppContent() {
                       }}
                       eventLabels={Object.fromEntries(itemEvents.events.map((e) => [e.itemId, eventLabel(e)]))}
                     />
+                    {date === daily.today && (
                     <TodoScheduleView
                       today={daily.today}
                       items={it.items}
@@ -872,6 +907,10 @@ function AppContent() {
                       problem={itemEvents.problem}
                       done={itemEvents.done}
                       onSchedule={(item, start, end) => void itemEvents.schedule(item, start, end)}
+                    />
+                    )}
+                    </div>
+                      )}
                     />
                   </div>
                 ) : projectTab === 'plan' ? (

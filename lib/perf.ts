@@ -30,6 +30,7 @@ export type PerfLine = {
   hypothesis_saved?: boolean; // AI と立てた仮説をノートに残したか (EXP-032)。中身は持たない
   judgement_applied?: boolean; // AI と決めた判定を ToDo に入れたか (EXP-034)。中身は持たない
   pick_added?: boolean; // 候補のボタンで選んだ項目を足したか (EXP-035)。中身は持たない
+  item_changed?: boolean; // AI と話して KPI か KDI を変えたか (EXP-038)。中身は持たない
 };
 
 // 真偽・数を出すための検査だけに使う。ここで見た本文はどこにも残さない
@@ -50,7 +51,8 @@ type KnownField =
   | "context_days"
   | "hypothesis_saved"
   | "judgement_applied"
-  | "pick_added";
+  | "pick_added"
+  | "item_changed";
 
 const round = (ms: number): number => Math.round(ms * 10) / 10;
 
@@ -76,6 +78,7 @@ export function formatPerfLine(line: PerfLine): string {
   if (line.hypothesis_saved !== undefined) out.hypothesis_saved = line.hypothesis_saved;
   if (line.judgement_applied !== undefined) out.judgement_applied = line.judgement_applied;
   if (line.pick_added !== undefined) out.pick_added = line.pick_added;
+  if (line.item_changed !== undefined) out.item_changed = line.item_changed;
   return `[perf] ${JSON.stringify(out)}`;
 }
 
@@ -113,6 +116,7 @@ export function startPerf(route: string, parts: PerfPart[] = []) {
       if (fields.hypothesis_saved !== undefined) known.hypothesis_saved = fields.hypothesis_saved;
       if (fields.judgement_applied !== undefined) known.judgement_applied = fields.judgement_applied;
       if (fields.pick_added !== undefined) known.pick_added = fields.pick_added;
+      if (fields.item_changed !== undefined) known.item_changed = fields.item_changed;
     },
 
     /** 外部呼び出し 1 回を計測して `part` に加算する。 */

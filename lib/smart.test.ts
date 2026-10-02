@@ -50,6 +50,7 @@ const READY: SmartDraft = {
   specific: "英語の会議で発言する", measurable: "週 1 回は発言する", timeBound: "2099-12-31",
   relevant: "仕事の幅を広げたい", achievable: "毎朝 20 分なら続けられる", name: "英語で会議", category: "work",
 };
+const KPIS = [{ title: "模試で 700 点", target: "700 点以上", dueDate: "2099-06-30" }];
 const post = (url: string, body: unknown) =>
   new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
@@ -137,25 +138,38 @@ describe("/api/setup/create (EXP-018 L3)", () => {
     expect(db.calls).toHaveLength(0);
   });
   it("201: プロジェクト・KGI・cycle を作り、全問い合わせに owner・中身とメールはログに出ない", async () => {
-    const res = await createPOST(post("http://l/api/setup/create", { draft: READY }));
+    const res = await createPOST(post("http://l/api/setup/create", { draft: READY, kpis: KPIS }));
     expect(res.status).toBe(201);
     const qs = db.calls.map((c) => c.q).join("\n");
     expect(qs).toMatch(/insert into projects/i);
     expect(qs).toMatch(/insert into plan_items/i);
     expect(qs).toMatch(/insert into cycles/i);
     expect(db.calls.every((c) => c.values.includes("owner@example.com"))).toBe(true);
-    const kgiInsert = db.calls.find((c) => /insert into plan_items/i.test(c.q));
-    expect(kgiInsert?.values).toContain("kgi");
+    const itemInserts = db.calls.filter((c) => /insert into plan_items/i.test(c.q));
+    expect(itemInserts[0]?.values).toContain("kgi");
+    // EXP-037: KGI の下に KPI (仮置き) を作る
+    expect(itemInserts[1]?.values).toEqual(expect.arrayContaining(["kpi", "22222222-2222-4222-8222-222222222222", "模試で 700 点", "700 点以上", "2099-06-30"]));
+    expect(perf.parsed().find((l) => l.route === "api/setup/create")).toMatchObject({ row_count: 4 });
     const logs = perf.all.join("\n");
     expect(logs).not.toContain("owner@example.com");
     expect(logs).not.toContain(READY.specific);
   });
   it("401・503", async () => {
     authState.session = null;
-    expect((await createPOST(post("http://l/api/setup/create", { draft: READY }))).status).toBe(401);
+    expect((await createPOST(post("http://l/api/setup/create", { draft: READY, kpis: KPIS }))).status).toBe(401);
     authState.session = { user: { email: "owner@example.com" }, expires: "2099-01-01" } as never;
     db.notConfigured = true;
-    expect((await createPOST(post("http://l/api/setup/create", { draft: READY }))).status).toBe(503);
+    expect((await createPOST(post("http://l/api/setup/create", { draft: READY, kpis: KPIS }))).status).toBe(503);
+  });
+  it.each([
+    ["KPI が無い", undefined],
+    ["KPI が空", []],
+    ["KGI の期限より後", [{ title: "x", target: "", dueDate: "2100-01-01" }]],
+    ["題が空のものを含む", [...KPIS, { title: "", target: "", dueDate: "" }]],
+  ])("%s なら 400 で DB を呼ばない (EXP-037 L3)", async (_l, kpis) => {
+    const res = await createPOST(post("http://l/api/setup/create", { draft: READY, kpis }));
+    expect(res.status).toBe(400);
+    expect(db.calls).toHaveLength(0);
   });
 });
 
@@ -170,7 +184,7 @@ describe("SmartPanel (EXP-018 L4)", () => {
   it("ready でなければ作るボタンは aria-disabled と理由・ready なら押せる", () => {
     const notReady = html(EMPTY_SMART, false);
     expect(notReady).toMatch(/aria-disabled="true"[^>]*aria-describedby="[^"]+"[^>]*>このゴールで作る|aria-describedby="[^"]+"[^>]*aria-disabled="true"[^>]*>このゴールで作る/);
-    expect(notReady).toContain("すべての欄を埋め、期限を今日以降にすると作れます");
+    expect(notReady).toContain("SMART のすべての欄を埋め (期限は今日以降)、KPI を 1 つ以上決めると作れます");
     const ready = html(READY, true);
     expect(ready).not.toMatch(/aria-disabled="true"[^>]*>このゴールで作る/);
     expect(ready).toContain("やめる");

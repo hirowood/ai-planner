@@ -15,6 +15,15 @@ const db = vi.hoisted(() => {
     const call = { strings: [...strings], values };
     state.calls.push(call);
     const q = text(call);
+    if (/update plan_items set title = coalesce/.test(q)) {
+      // updateItem: 値 = title, target, status, hasDue, dueDate, id, owner, touchesLocked
+      const target = state.items.find((r) => r.id === values[5] && r.level !== "kgi");
+      if (!target) return [];
+      if (values[0] !== null) target.title = values[0];
+      if (values[1] !== null) target.target = values[1];
+      if (values[3]) target.due_date = values[4];
+      return [{ ...target }];
+    }
     if (/update plan_items set status/.test(q)) {
       // judgeItem: 値 = status, id, owner。今の状態が done のときだけ更新できる
       const target = state.items.find((r) => r.id === values[1] && r.level === "todo" && r.status === "done");
@@ -379,6 +388,67 @@ describe("POST /api/coach — 階層の次の段 (EXP-019 L3)", () => {
       expect(body.itemsAdded).toEqual([]);
       expect(body.candidates).toEqual([]);
       expect(inserts()).toHaveLength(0);
+    });
+  });
+
+  describe("KPI と KDI を AI と話しながら変える (EXP-038 L2)", () => {
+    const KDI_ID = "00000000-0000-4000-8000-000000000003";
+    const setup = () => {
+      db.state.items = [
+        { ...row(KGI_ID, "kgi", null, KGI_CANARY), due_date: "2099-12-31" },
+        { ...row(KPI_ID, "kpi", KGI_ID, "模試 700"), target: "700 点" },
+        row(KDI_ID, "kdi", KPI_ID, "単語 30 分"),
+      ];
+    };
+    const updates = () => db.state.calls.filter((c) => /update plan_items set title = coalesce/.test(db.text(c)));
+
+    it("プロンプトに番号と変え方の文・同意した KPI の変更はその KPI だけに入る (owner をパラメータで)", async () => {
+      setup();
+      geminiState.reply = JSON.stringify({ reply: "650 点にしましょう", plan: {}, choices: [], items: [], itemChange: { ref: "K1", target: "650 点" } });
+      const body = await (await POST(post("それでいい"))).json();
+      const p = geminiState.lastPrompt ?? "";
+      expect(p).toContain("#### KPI と KDI の番号 (EXP-038)");
+      expect(p).toContain("- K1: KPI『模試 700』 / 判定基準 700 点");
+      expect(p).toContain("- D1: KDI『単語 30 分』");
+      expect(p).toContain("KPI は仮置き、KDI は都度調整するものです (KGI は変えません)");
+      expect(body.itemChanged).toEqual({ level: "kpi", before: { title: "模試 700", target: "700 点", dueDate: "" }, after: { title: "模試 700", target: "650 点", dueDate: "" } });
+      const ups = updates();
+      expect(ups).toHaveLength(1);
+      expect(ups[0].values).toEqual(expect.arrayContaining([KPI_ID, EMAIL, "650 点"]));
+      expect(perf.parsed().find((l) => l.route === "api/coach")).toMatchObject({ item_changed: true });
+      for (const c of [EMAIL, "650 点"]) expect(perf.all.join(" ")).not.toContain(c);
+    });
+
+    it("KDI の題も変えられる", async () => {
+      setup();
+      geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [], itemChange: { ref: "D1", title: "単語 20 分" } });
+      const body = await (await POST(post())).json();
+      expect(body.itemChanged?.level).toBe("kdi");
+      expect(body.itemChanged?.after.title).toBe("単語 20 分");
+      expect(updates()[0].values).toContain(KDI_ID);
+    });
+
+    it.each([
+      ["知らない番号", { ref: "K9", title: "x" }],
+      ["KGI の期限より後", { ref: "K1", dueDate: "2100-01-01" }],
+      ["変える欄なし", { ref: "K1" }],
+      ["無い", null],
+    ])("%s なら変えない", async (_l, itemChange) => {
+      setup();
+      geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [], itemChange });
+      const body = await (await POST(post())).json();
+      expect(body.itemChanged).toBeNull();
+      expect(updates()).toHaveLength(0);
+      expect(perf.parsed().find((l) => l.route === "api/coach")).toMatchObject({ item_changed: false });
+    });
+
+    it("判定待ちの間は変えない", async () => {
+      setup();
+      db.state.items.push({ ...row("00000000-0000-4000-8000-000000000010", "todo", KDI_ID, "完了"), due_date: todayJst(), status: "done" });
+      geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [], itemChange: { ref: "K1", target: "650 点" } });
+      const body = await (await POST(post())).json();
+      expect(body.itemChanged).toBeNull();
+      expect(updates()).toHaveLength(0);
     });
   });
 

@@ -21,7 +21,8 @@ export const PAST_LIMIT = 10;
 
 /** プロジェクトを作った直後の一言 (画面で作る・EXP-029)。次は KPI へ進む。 */
 export function afterCreateMessage(name: string): string {
-  return `『${name}』の KGI ができました (固定)。次は、期限までに KGI を達成できているかを途中で測る KPI を決めましょう。何で進み具合を測りますか？`;
+  // EXP-037: 作るときに KPI (仮置き) も決めたので、次は KDI (行動の目標)
+  return `『${name}』の KGI ができました (固定)。KPI は仮置きで、あとで話しながら変えられます。次は、KPI を達成するための KDI (行動の量・頻度) を決めましょう。何から始めますか？`;
 }
 const TEXT_CHARS = 60;
 
