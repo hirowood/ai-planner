@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { parseItemSlots, slotLabel, timetable, type ItemSlot, type TimetableEntry } from '../../lib/slots';
 import { TASK_STATUSES, TASK_STATUS_LABEL, parseTaskList, type DailyTask, type TaskStatus } from '../../lib/daily-tasks';
 import { STATUS_LABEL, type ItemStatus, type PlanItem } from '../../lib/plan-items';
@@ -309,13 +309,15 @@ export function daySchedule(todos: ScheduledTodo[], tasks: DailyTask[], day: str
   ];
 }
 
-export function AppCalendarView({ today, date, todos, tasks, problem, onChange }: {
+export function AppCalendarView({ today, date, todos, tasks, problem, onChange, children }: {
   today: string;
   date: string;
   todos: ScheduledTodo[];
   tasks: DailyTask[];
   problem: string | null;
   onChange(date: string): void;
+  /** 選んだ日の下に置くもの (日常の ToDo の欄・EXP-041) */
+  children?: ReactNode;
 }) {
   const grid = monthGrid(date);
   return (
@@ -368,6 +370,7 @@ export function AppCalendarView({ today, date, todos, tasks, problem, onChange }
         headingId="app-calendar-day-heading"
         label={`🕘 ${Number(date.slice(5, 7))}月${Number(date.slice(8, 10))}日 (${WEEKDAY_LABEL[weekdayIndex(date)]}) のタイムスケジュール`}
       />
+      {children}
     </section>
   );
 }
@@ -376,7 +379,7 @@ export function AppCalendarView({ today, date, todos, tasks, problem, onChange }
 export function AppCalendar({ today }: { today: string }) {
   const [date, setDate] = useState(today);
   const { from, to } = gridRange(date);
-  const { tasks, problem: taskProblem } = useTasks(from, to);
+  const { tasks, problem: taskProblem, create, update, remove } = useTasks(from, to);
   const [todos, setTodos] = useState<ScheduledTodo[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
   useEffect(() => {
@@ -396,6 +399,18 @@ export function AppCalendar({ today }: { today: string }) {
     })();
     return () => { cancelled = true; };
   }, [from, to]);
-  return <AppCalendarView today={today} date={date} todos={todos} tasks={tasks} problem={problem ?? taskProblem} onChange={setDate} />;
+  return (
+    <AppCalendarView today={today} date={date} todos={todos} tasks={tasks} problem={problem} onChange={setDate}>
+      {/* 今日の仕事や用事を足す (EXP-041: スケジュールの欄で) */}
+      <DailyTasksView
+        day={date}
+        tasks={tasks}
+        problem={taskProblem}
+        onCreate={(title, s, e) => create(date, title, s, e)}
+        onUpdate={(id, p) => void update(id, p)}
+        onRemove={(id) => void remove(id)}
+      />
+    </AppCalendarView>
+  );
 }
 

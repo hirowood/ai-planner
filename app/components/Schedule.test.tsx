@@ -72,12 +72,27 @@ describe("アプリ内のカレンダー (EXP-039 L4)", () => {
     expect(daySchedule([todo(1), todo(2, { dueDate: "2026-10-03" })], [task(1)], TODAY).map((x) => x.key)).toEqual(["i-i1", "t-t1"]);
     expect(gridRange(TODAY)).toEqual({ from: "2026-09-28", to: "2026-11-01" });
   });
-  it("右の列のタブは「カレンダー」で、アプリ内のカレンダーを出す (Google の予定の一覧は出さない)", () => {
+  it("右の列の「スケジュール」でアプリ内のカレンダーを出す (Google の予定の一覧は出さない・EXP-041 でタブの名前を変えた)", () => {
     const src = readFileSync(new URL("../page.tsx", import.meta.url), "utf8");
-    expect(src).toContain("['calendar', '📅', 'カレンダー']");
+    expect(src).toContain("['schedule', '📅', 'スケジュール']");
     expect(src).toContain("<AppCalendar today={daily.today} />");
     expect(src).not.toContain("<TodoScheduleView");
     expect(src).not.toContain("{todayEvents.map(");
+  });
+});
+
+describe("スケジュールの欄に日常の ToDo (EXP-041 L3)", () => {
+  it("カレンダーの下に選んだ日の欄を置ける", () => {
+    const html = renderToStaticMarkup(
+      <AppCalendarView today={TODAY} date={TODAY} todos={[]} tasks={[]} problem={null} onChange={noop}>
+        <DailyTasksView day={TODAY} tasks={[]} problem={null} onCreate={noop} onUpdate={noop} onRemove={noop} />
+      </AppCalendarView>,
+    );
+    const cal = html.indexOf("のタイムスケジュール");
+    expect(cal).toBeGreaterThan(-1);
+    expect(html.indexOf("🏠</span> 日常の ToDo")).toBeGreaterThan(cal);
+    const src = readFileSync(new URL("./Schedule.tsx", import.meta.url), "utf8");
+    expect(src).toContain("onCreate={(title, s, e) => create(date, title, s, e)}");
   });
 });
 
