@@ -48,6 +48,9 @@ function draftFrom(log: DailyLog | undefined): Draft {
 
 const inputClass =
   'w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500';
+// 状態の選択は中身の幅だけ取る (w-full を付けない: 題の幅を奪わない)
+const selectClass =
+  'w-auto shrink-0 px-2 py-2 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500';
 const buttonClass =
   'px-3 py-2 rounded-lg border font-bold text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500';
 
@@ -168,7 +171,7 @@ export function DailyView({ today, items, logs, problem, saving, saved, onUpdate
             <ul className="flex flex-col gap-2">
               {g.todos.map((t) => (
                 <li key={t.id} className="flex items-center gap-2">
-                  <span className="flex-1 text-sm text-gray-900">
+                  <span className="min-w-0 flex-1 break-words text-sm text-gray-900">
                     {t.title}
                     {eventLabels[t.id] && <span className="ml-2 text-green-800">{eventLabels[t.id]}</span>}
                     {t.target && <span className="block text-gray-600">判定基準: {t.target}</span>}
@@ -177,7 +180,7 @@ export function DailyView({ today, items, logs, problem, saving, saved, onUpdate
                     aria-label={`『${t.title}』の状態`}
                     value={t.status}
                     onChange={(e) => onUpdateItem(t.id, { status: e.target.value as ItemStatus })}
-                    className={`${inputClass} w-auto`}
+                    className={selectClass}
                   >
                     {STATUS_ORDER.map((s) => (
                       <option key={s} value={s}>{STATUS_LABEL[s]}</option>
@@ -215,7 +218,7 @@ export function DailyView({ today, items, logs, problem, saving, saved, onUpdate
             <legend className="text-sm font-bold text-gray-800">今日はどうでしたか？</legend>
             <div className="flex gap-2">
               {MARKS.map((m) => (
-                <label key={m} className={`${buttonClass} flex-1 text-center cursor-pointer has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blue-500 ${draft.mark === m ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'}`}>
+                <label key={m} className={`${buttonClass} relative flex-1 text-center cursor-pointer has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blue-500 ${draft.mark === m ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'}`}>
                   <input
                     type="radio"
                     name="daily-mark"

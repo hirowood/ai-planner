@@ -627,9 +627,9 @@ function AppContent() {
   );
 
   return (
-    <div className="flex h-screen bg-gray-50 text-gray-800">
+    <div className="flex h-screen overflow-hidden bg-gray-50 text-gray-800">
       {/* 左サイド */}
-      <div className="flex flex-col w-2/3 border-r bg-white">
+      <div className="relative flex flex-col w-2/3 min-w-0 border-r bg-white">
         <header className="p-4 border-b flex justify-between items-center bg-white h-16">
           <h1 className="text-xl font-bold text-blue-600">AI Planner 🗓️</h1>
           
@@ -772,7 +772,7 @@ function AppContent() {
       </div>
 
       {/* 右サイド */}
-      <div className="w-1/3 bg-gray-100 p-4 overflow-y-auto flex flex-col gap-6">
+      <div className="relative w-1/3 min-w-0 bg-gray-100 p-4 overflow-y-auto flex flex-col gap-6">
         {setupDraft ? (
           <SmartPanel
             draft={setupDraft}
