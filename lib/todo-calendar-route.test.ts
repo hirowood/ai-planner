@@ -6,23 +6,41 @@ import { capturePerf, stubFetch } from "../test/mocks/fetch";
 const db = vi.hoisted(() => {
   type Call = { strings: string[]; values: unknown[] };
   type Row = Record<string, unknown>;
-  const state = { item: null as Row | null, claimed: false, calls: [] as Call[], events: [] as Row[] };
+  // item_events の 1 行を印 (event_id) つきで持つ。stale = 2 分より古い枠として扱う
+  const state = {
+    item: null as Row | null,
+    row: null as { event_id: string } | null,
+    stale: false,
+    confirmThrows: false,
+    beforeConfirm: null as null | (() => void),
+    calls: [] as Call[],
+    events: [] as Row[],
+  };
   const text = (c: Call) => c.strings.join(" ").toLowerCase().replace(/\s+/g, " ");
   const sql = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const call = { strings: [...strings], values };
     state.calls.push(call);
     const q = text(call);
     if (/insert into item_events/.test(q)) {
-      const ok = state.item && state.item.level === "todo" && state.item.due_date && !state.claimed;
-      if (!ok) return [];
-      state.claimed = true;
+      const ok = state.item && state.item.level === "todo" && state.item.due_date;
+      const free = !state.row || (state.row.event_id.startsWith("pending") && state.stale);
+      if (!ok || !free) return [];
+      state.row = { event_id: String(values[2]) };
       return [{ item_id: values[0] }];
     }
     if (/delete from item_events/.test(q)) {
-      state.claimed = false;
+      if (state.row && state.row.event_id === values[2]) state.row = null;
       return [];
     }
-    if (/update item_events/.test(q)) return [];
+    if (/update item_events/.test(q)) {
+      state.beforeConfirm?.();
+      if (state.confirmThrows) throw Object.assign(new Error("db down"), { code: "57P01" });
+      if (state.row && state.row.event_id === values[3]) {
+        state.row = { event_id: String(values[0]) };
+        return [{ item_id: values[1] }];
+      }
+      return [];
+    }
     if (/from item_events/.test(q)) return state.events;
     if (/from plan_items/.test(q)) return state.item ? [state.item] : [];
     return [];
@@ -59,7 +77,10 @@ beforeEach(() => {
   perf = capturePerf();
   authState.session = { user: { name: "t", email: EMAIL }, accessToken: TOKEN } as never;
   db.state.item = todoRow();
-  db.state.claimed = false;
+  db.state.row = null;
+  db.state.stale = false;
+  db.state.confirmThrows = false;
+  db.state.beforeConfirm = null;
   db.state.calls = [];
   db.state.events = [];
 });
@@ -121,11 +142,15 @@ describe("POST /api/items/[id]/calendar (EXP-030 L2)", () => {
       start: { dateTime: "2026-10-02T09:00:00+09:00" },
       end: { dateTime: "2026-10-02T09:30:00+09:00" },
     });
-    const claim = calls(/insert into item_events/)[0];
-    expect(claim.values).toEqual(expect.arrayContaining([ID, EMAIL, "pending", "09:00", "09:30"]));
-    expect(claim.strings.join("")).not.toContain(EMAIL);
+    const claimCall = calls(/insert into item_events/)[0];
+    expect(claimCall.values).toEqual(expect.arrayContaining([ID, EMAIL, "09:00", "09:30"]));
+    expect(claimCall.strings.join("")).not.toContain(EMAIL);
+    // 枠の印は一度きり (pending:uuid)。確定はその印の枠だけ (安全レビュー W1)
+    const token = String(claimCall.values[2]);
+    expect(token).toMatch(/^pending:[0-9a-f-]{36}$/);
     const confirm = calls(/update item_events/)[0];
-    expect(confirm.values).toEqual(expect.arrayContaining(["g-123", EMAIL, ID]));
+    expect(confirm.values).toEqual(expect.arrayContaining(["g-123", EMAIL, ID, token]));
+    expect(db.state.row).toEqual({ event_id: "g-123" });
     expect(calls(/delete from item_events/)).toHaveLength(0);
     const line = perf.parsed().find((l) => l.route === "api/items/[id]/calendar");
     expect(line).toMatchObject({ status: 200 });
@@ -144,6 +169,8 @@ describe("POST /api/items/[id]/calendar (EXP-030 L2)", () => {
     expect(res.status).toBe(502);
     expect((await res.json()).error).toContain("Google にもう一度ログイン");
     expect(calls(/delete from item_events/)).toHaveLength(1);
+    // 消すのは自分の印の枠
+    expect(calls(/delete from item_events/)[0].values).toContain(String(calls(/insert into item_events/)[0].values[2]));
     expect(calls(/update item_events/)).toHaveLength(0);
     noCanary();
     // 枠を消したので、もう一度入れられる
@@ -157,6 +184,61 @@ describe("POST /api/items/[id]/calendar (EXP-030 L2)", () => {
   });
 });
 
+describe("枠の取り合いと二重の予定 (安全レビュー W1)", () => {
+  type FetchCall = { url: string; method: string; signal: unknown };
+  function stubGoogle(created = "g-1") {
+    const seen: FetchCall[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: RequestInit) => {
+      seen.push({ url: String(url), method: init?.method ?? "GET", signal: init?.signal });
+      if (init?.method === "DELETE") return new Response(null, { status: 204 });
+      return new Response(JSON.stringify({ id: created }), { status: 200 });
+    }));
+    return seen;
+  }
+
+  it("Google への問い合わせは打ち切りの signal つき", async () => {
+    const seen = stubGoogle();
+    expect((await post({})).status).toBe(200);
+    expect(seen[0].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("待っている間に別の要求が枠を取り直したら、作った予定を Google から消して 409 (二重にしない)", async () => {
+    const seen = stubGoogle("g-mine");
+    db.state.beforeConfirm = () => {
+      db.state.row = { event_id: "pending:other-request" };
+    };
+    const res = await post({});
+    expect(res.status).toBe(409);
+    const del = seen.filter((c) => c.method === "DELETE");
+    expect(del).toHaveLength(1);
+    expect(del[0].url).toMatch(/\/events\/g-mine$/);
+    // 別の要求の枠は消さない
+    expect(db.state.row).toEqual({ event_id: "pending:other-request" });
+    noCanary();
+  });
+
+  it("確定の記録が失敗したら、Google の予定を消して自分の枠を返す (あとで入れ直しても 2 つにならない)", async () => {
+    const seen = stubGoogle("g-mine");
+    db.state.confirmThrows = true;
+    const res = await post({});
+    expect(res.status).toBe(500);
+    expect(seen.filter((c) => c.method === "DELETE")).toHaveLength(1);
+    expect(db.state.row).toBeNull();
+    noCanary();
+  });
+
+  it("2 分より古い作りかけの枠は取り直せる・作り終えた予定は取り直せない", async () => {
+    stubGoogle();
+    db.state.row = { event_id: "pending:stale" };
+    db.state.stale = true;
+    expect((await post({})).status).toBe(200);
+    db.state.stale = true;
+    expect((await post({})).status).toBe(409);
+    // 取り直しの SQL は作りかけ (pending で始まる) だけを対象にする
+    expect(db.text(calls(/insert into item_events/)[0])).toContain("where item_events.event_id like");
+  });
+});
+
 describe("GET /api/items/events (EXP-030 L3)", () => {
   it("owner と projectId で絞り、作り終えた予定だけ", async () => {
     db.state.events = [{ item_id: ID, start_time: "09:00", end_time: "09:30" }];
@@ -164,8 +246,8 @@ describe("GET /api/items/events (EXP-030 L3)", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ events: [{ itemId: ID, start: "09:00", end: "09:30" }] });
     const q = calls(/from item_events/)[0];
-    expect(q.values).toEqual(expect.arrayContaining([EMAIL, PID, "pending"]));
-    expect(db.text(q)).toContain("e.event_id <>");
+    expect(q.values).toEqual(expect.arrayContaining([EMAIL, PID, "pending%"]));
+    expect(db.text(q)).toContain("e.event_id not like");
   });
   it("401・400", async () => {
     expect((await GET(new Request(`http://l/api/items/events?projectId=x`))).status).toBe(400);

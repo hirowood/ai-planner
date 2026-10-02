@@ -23,6 +23,24 @@ type Ctx = { params: Promise<{ id: string }> };
 
 const ROUTE = "api/items/[id]/calendar";
 const GOOGLE_EVENTS = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
+/** Google への問い合わせを打ち切る時間。枠を取り直せる 2 分より十分短く (安全レビュー W1)。 */
+const GOOGLE_TIMEOUT_MS = 20_000;
+
+/** 作った予定を記録できなかったとき、Google 側の予定を消す (追えない予定を残さない)。失敗しても投げない。 */
+async function deleteGoogleEvent(token: string, eventId: string, perf: Perf): Promise<boolean> {
+  try {
+    const res = await perf.time("calendar_ms", () =>
+      fetch(`${GOOGLE_EVENTS}/${encodeURIComponent(eventId)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(GOOGLE_TIMEOUT_MS),
+      }),
+    );
+    return res.ok || res.status === 410;
+  } catch {
+    return false;
+  }
+}
 
 export async function POST(req: Request, { params }: Ctx) {
   const perf = startPerf(ROUTE, ["db_ms", "calendar_ms"]);
@@ -73,11 +91,12 @@ async function handle(req: Request, id: string, perf: Perf): Promise<Response> {
     if (claimed === null) return NextResponse.json({ error: "項目が見つかりません" }, { status: 404 });
     if (claimed === SCHEDULE_NOT_TODO) return NextResponse.json({ error: "期日のある ToDo だけ予定に入れられます" }, { status: 400 });
     if (claimed === SCHEDULE_EXISTS) return NextResponse.json({ error: "この ToDo はもう予定に入っています" }, { status: 409 });
+    const { claim } = claimed;
 
     const item = await perf.time("db_ms", () => getItem(sql, owner, id));
     const event = item ? todoToEvent(item, range) : null;
     if (!event) {
-      await perf.time("db_ms", () => releaseItemEvent(sql, owner, id));
+      await perf.time("db_ms", () => releaseItemEvent(sql, owner, id, claim));
       return NextResponse.json({ error: "期日のある ToDo だけ予定に入れられます" }, { status: 400 });
     }
 
@@ -89,6 +108,7 @@ async function handle(req: Request, id: string, perf: Perf): Promise<Response> {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify(event),
+          signal: AbortSignal.timeout(GOOGLE_TIMEOUT_MS),
         }),
       );
       googleStatus = res.status;
@@ -100,14 +120,30 @@ async function handle(req: Request, id: string, perf: Perf): Promise<Response> {
     }
 
     if (!eventId) {
-      await perf.time("db_ms", () => releaseItemEvent(sql, owner, id));
+      await perf.time("db_ms", () => releaseItemEvent(sql, owner, id, claim));
       // 状態の数だけを出す (題・トークンは出さない)
       console.error(`[${ROUTE}] google failed: ${googleStatus}`);
       const message = googleStatus === 401 ? "Google にもう一度ログインしてください" : "予定を作れませんでした。少し待ってからもう一度";
       return NextResponse.json({ error: message }, { status: 502 });
     }
 
-    await perf.time("db_ms", () => confirmItemEvent(sql, owner, id, eventId));
+    const createdId = eventId;
+    let confirmed = false;
+    try {
+      confirmed = await perf.time("db_ms", () => confirmItemEvent(sql, owner, id, claim, createdId));
+    } catch (error: unknown) {
+      // Google には作れたが記録できなかった: Google の予定を消して枠を返す (あとで入れ直しても 2 つにならない)
+      const removed = await deleteGoogleEvent(token, createdId, perf);
+      await perf.time("db_ms", () => releaseItemEvent(sql, owner, id, claim)).catch(() => undefined);
+      console.error(`[${ROUTE}] confirm failed: google_removed=${removed}`);
+      return dbFailure(error);
+    }
+    if (!confirmed) {
+      // 待っている間に別の要求が枠を取り直した: こちらで作った予定は消し、二重にしない
+      const removed = await deleteGoogleEvent(token, createdId, perf);
+      console.error(`[${ROUTE}] claim lost: google_removed=${removed}`);
+      return NextResponse.json({ error: "この ToDo はもう予定に入っています" }, { status: 409 });
+    }
     return NextResponse.json({ event: { itemId: id, start, end } }, { status: 200 });
   } catch (error: unknown) {
     return dbFailure(error);
