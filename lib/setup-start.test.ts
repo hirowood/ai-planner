@@ -19,13 +19,13 @@ vi.mock("./db", () => ({
 
 import { GET } from "../app/api/setup/start/route";
 
-const zero = { todo: 0, done: 0, shelved: 0, failed: 0, succeeded: 0, adjusted: 0 };
+const zero = { todo: 0, doing: 0, done: 0, shelved: 0, failed: 0, succeeded: 0, adjusted: 0 };
 const past = (over: Partial<PastProject>): PastProject => ({ name: "英語", category: "learning", purpose: "", kgiTitle: null, kgiStatus: null, counts: zero, ...over });
 
 describe("summarizePast (EXP-027 L1)", () => {
   it("1 件 1 行・種類の名前・KGI と状態の数", () => {
     const out = summarizePast([past({ purpose: "昇進", kgiTitle: "TOEIC 800", kgiStatus: "succeeded", counts: { ...zero, done: 3, shelved: 1 } })]);
-    expect(out).toBe("- 英語 (学習): 目的「昇進」・KGI「TOEIC 800」は成功・未実行 0 / 実行 3 / 棚上げ 1 / 失敗 0 / 成功 0 / 調整 0");
+    expect(out).toBe("- 英語 (学習): 目的「昇進」・KGI「TOEIC 800」は成功・未実行 0 / 実行中 0 / 実行 3 / 棚上げ 1 / 失敗 0 / 成功 0 / 調整 0");
   });
   it("10 件まで・60 字で切る・< を全角・KGI が無いとき", () => {
     const many = Array.from({ length: 12 }, (_, i) => past({ name: `p${i}` }));

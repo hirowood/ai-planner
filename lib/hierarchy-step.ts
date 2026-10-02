@@ -26,9 +26,10 @@ function byCreated(a: PlanItem, b: PlanItem): number {
 }
 
 /**
- * 次に決める段 (EXP-031)。KGI → KPI → KDI を 3 つほど → 毎日 KDI ごとに今日の ToDo を 3 つほど。
- * KGI が無い → kgi・KPI が無い → kpi・KDI が 3 つ未満 → kdi (KDI の少ない KPI の下)・
- * 今日の ToDo が 3 つ未満の KDI (古い順) → todo・全部そろっている → null。棚上げの KDI は数えない。
+ * 次に決める段 (EXP-035 が EXP-031 の順を置き換え: すぐに ToDo へ)。
+ * KGI が無い → kgi・KPI が無い → kpi・KDI が 0 → kdi・
+ * 今日の ToDo が 3 つ未満の KDI (古い順・3 つまで) → todo・KDI が 3 つ未満 → kdi (KDI の少ない KPI の下)・
+ * 全部そろっている → null。棚上げの KDI は数えない。
  */
 export function nextHierarchyStep(items: PlanItem[], today: string): HierarchyStep | null {
   const sorted = [...items].sort(byCreated);
@@ -39,16 +40,19 @@ export function nextHierarchyStep(items: PlanItem[], today: string): HierarchySt
   if (kpis.length === 0) return { level: "kpi", parent: kgi };
   const activeKdis = (kpi: PlanItem) => childrenOf(kpi).filter((i) => i.level === "kdi" && i.status !== "shelved");
   const kdis = kpis.flatMap(activeKdis).sort(byCreated);
-  if (kdis.length < KDI_TARGET) {
-    // KDI の一番少ない KPI の下に足す (同じなら古い KPI)
+  // KDI の一番少ない KPI の下に足す (同じなら古い KPI)
+  const kdiStep = (): HierarchyStep => {
     let parent = kpis[0];
     for (const kpi of kpis) if (activeKdis(kpi).length < activeKdis(parent).length) parent = kpi;
     return { level: "kdi", parent, have: kdis.length };
-  }
+  };
+  if (kdis.length === 0) return kdiStep();
+  // KDI が 1 つでもあれば、まず今日の ToDo (鬼速PDCA: 小さな PDCA を毎日回す)
   for (const kdi of kdis.slice(0, KDI_TARGET)) {
     const have = childrenOf(kdi).filter((i) => i.level === "todo" && i.dueDate === today).length;
     if (have < TODO_PER_KDI) return { level: "todo", parent: kdi, today, have };
   }
+  if (kdis.length < KDI_TARGET) return kdiStep();
   return null;
 }
 
@@ -121,4 +125,36 @@ export function parseProposedItems(x: unknown, step: HierarchyStep | null, proje
     if (input) out.push(input);
   }
   return out;
+}
+
+/** 候補 (EXP-035): AI の candidates を今の段として検査し、題と判定基準だけを返す (3 つまで)。 */
+export type Candidate = { title: string; target: string };
+export function parseCandidates(x: unknown, step: HierarchyStep | null, projectId: string): Candidate[] {
+  return parseProposedItems(x, step, projectId)
+    .slice(0, PROPOSED_MAX)
+    .map((i) => ({ title: i.title, target: i.target }));
+}
+
+/** 画面で使う: サーバの candidates の形を検査する。 */
+export function parseCandidateList(x: unknown): Candidate[] {
+  if (!Array.isArray(x)) return [];
+  const out: Candidate[] = [];
+  for (const r of x.slice(0, PROPOSED_MAX)) {
+    if (typeof r !== "object" || r === null) continue;
+    const o = r as Record<string, unknown>;
+    if (typeof o.title !== "string" || !o.title.trim()) continue;
+    out.push({ title: o.title.trim(), target: typeof o.target === "string" ? o.target : "" });
+  }
+  return out;
+}
+
+/** 候補のボタンを押したときに送る本文 (EXP-035)。 */
+export function pickBody(projectId: string, c: Candidate): { projectId: string; message: string; pick: Candidate } {
+  return { projectId, message: `『${c.title}』にします`, pick: { title: c.title, target: c.target } };
+}
+
+/** 答えの候補のボタン: 次の段の候補の題を先に、ほかの候補を後に (同じ文は 1 つ・EXP-035)。 */
+export function choiceButtons(candidates: Candidate[], choices: string[]): string[] {
+  const titles = candidates.map((c) => c.title);
+  return [...titles, ...choices.filter((c) => !titles.includes(c))];
 }

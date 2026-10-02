@@ -4,7 +4,8 @@
 import { isUuid } from "./projects";
 
 export type ItemLevel = "kgi" | "kpi" | "kdi" | "todo";
-export type ItemStatus = "todo" | "done" | "shelved" | "failed" | "succeeded" | "adjusted";
+// doing = 実行中 (EXP-034)。done = 実行 (完了・まだ判定していない)
+export type ItemStatus = "todo" | "doing" | "done" | "shelved" | "failed" | "succeeded" | "adjusted";
 
 export const LEVEL_LABEL: Record<ItemLevel, string> = {
   kgi: "KGI (ゴール)",
@@ -15,6 +16,7 @@ export const LEVEL_LABEL: Record<ItemLevel, string> = {
 
 export const STATUS_LABEL: Record<ItemStatus, string> = {
   todo: "未実行",
+  doing: "実行中",
   done: "実行",
   shelved: "棚上げ",
   failed: "失敗",
@@ -22,7 +24,7 @@ export const STATUS_LABEL: Record<ItemStatus, string> = {
   adjusted: "調整",
 };
 
-export const STATUS_ORDER: ItemStatus[] = ["todo", "done", "shelved", "failed", "succeeded", "adjusted"];
+export const STATUS_ORDER: ItemStatus[] = ["todo", "doing", "done", "shelved", "failed", "succeeded", "adjusted"];
 
 /** 子の段。ToDo の下には作らない。 */
 export const CHILD_LEVEL: Record<ItemLevel, ItemLevel | null> = {

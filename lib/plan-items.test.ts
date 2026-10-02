@@ -31,9 +31,10 @@ describe("定数 (EXP-017 L1)", () => {
   it("段と状態のラベル・順番・子の段 (EXP-017 L1)", () => {
     expect(LEVEL_LABEL).toEqual({ kgi: "KGI (ゴール)", kpi: "KPI (途中の指標)", kdi: "KDI (行動の目標)", todo: "ToDo" });
     expect(STATUS_LABEL).toEqual({
-      todo: "未実行", done: "実行", shelved: "棚上げ", failed: "失敗", succeeded: "成功", adjusted: "調整",
+      todo: "未実行", doing: "実行中", done: "実行", shelved: "棚上げ", failed: "失敗", succeeded: "成功", adjusted: "調整",
     });
-    expect(STATUS_ORDER).toEqual(["todo", "done", "shelved", "failed", "succeeded", "adjusted"]);
+    // EXP-034 で「実行中」(doing) を足した
+    expect(STATUS_ORDER).toEqual(["todo", "doing", "done", "shelved", "failed", "succeeded", "adjusted"]);
     expect(CHILD_LEVEL).toEqual({ kgi: "kpi", kpi: "kdi", kdi: "todo", todo: null });
   });
 });
@@ -67,7 +68,7 @@ describe("parseItemInput (EXP-017 L1)", () => {
     ["201 字のタイトル", { ...kgiInput, title: "あ".repeat(201) }],
     ["201 字の目標値", { ...kgiInput, target: "い".repeat(201) }],
     ["知らない段", { ...kgiInput, level: "okr" }],
-    ["知らない状態", { ...kgiInput, status: "doing" }],
+    ["知らない状態", { ...kgiInput, status: "in_progress" }],
     ["kgi に親", { ...kgiInput, parentId: PARENT_ID }],
     ["kpi に親なし", { ...kpiInput, parentId: null }],
     ["UUID でない親", { ...kpiInput, parentId: "not-a-uuid" }],
@@ -100,7 +101,7 @@ describe("parseItemPatch (EXP-017 L1)", () => {
     ["空のタイトル", { title: "" }],
     ["201 字のタイトル", { title: "あ".repeat(201) }],
     ["201 字の目標値", { target: "い".repeat(201) }],
-    ["知らない状態", { status: "doing" }],
+    ["知らない状態", { status: "in_progress" }],
     ["実在しない日付", { dueDate: "2026-02-30" }],
     ["オブジェクトでない", "done"],
     ["null", null],

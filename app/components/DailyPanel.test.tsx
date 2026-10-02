@@ -74,6 +74,22 @@ describe("「☀️ 今日」のタブ (EXP-020 L5)", () => {
     expect(html).toContain("判定基準: 30 個を言える");
     expect(html).toMatch(/<h4[^>]*>KDI: 単語 毎日 30 分<\/h4>/);
   });
+  it("ToDo の状態ごとのボタン: 未実行 → 始める・実行中 → 完了・実行 → 判定待ち・判定済みは無し (EXP-034 L2)", () => {
+    const t = (n: number, status: PlanItem["status"]) => ({ ...todo(n), title: `T${n}`, status });
+    const html = render([t(1, "todo"), t(2, "doing"), t(3, "done"), t(4, "succeeded"), t(5, "failed")]);
+    expect(html).toContain('aria-label="『T1』を始める"');
+    expect(html).toContain('aria-label="『T2』を完了にする"');
+    expect(html).toContain('aria-label="『T3』を AI と判定する (判定待ち)"');
+    expect(html).not.toContain("『T4』を");
+    expect(html).not.toContain("『T5』を始める");
+    expect(html).not.toContain("『T5』を完了");
+    // 記号は読み上げない
+    expect(html).toContain('<span aria-hidden="true">▶</span> 始める');
+    expect(html).toContain('<span aria-hidden="true">✓</span> 完了');
+    // 状態の選択も残る (手で直せる)・実行中が選べる
+    expect(html).toContain('aria-label="『T1』の状態"');
+    expect(html).toContain('<option value="doing">実行中</option>');
+  });
   it("今日の記録があれば入れておき「上書き」・保存後は AI にひとこと", () => {
     const log: DailyLog = { projectId: P, day: TODAY, mark: "fair", goods: ["早起き"], tomorrow: "10 分早く", updatedAt: "u" };
     const html = render([], [log], true);

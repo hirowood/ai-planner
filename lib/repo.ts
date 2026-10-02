@@ -438,6 +438,7 @@ export async function listPastProjects(sql: Sql, owner: string, limit: number): 
       (select k.title from plan_items k where k.project_id = p.id and k.owner = ${owner} and k.level = 'kgi' limit 1) as kgi_title,
       (select k.status from plan_items k where k.project_id = p.id and k.owner = ${owner} and k.level = 'kgi' limit 1) as kgi_status,
       (select count(*) from plan_items i where i.project_id = p.id and i.owner = ${owner} and i.status = 'todo') as c_todo,
+      (select count(*) from plan_items i where i.project_id = p.id and i.owner = ${owner} and i.status = 'doing') as c_doing,
       (select count(*) from plan_items i where i.project_id = p.id and i.owner = ${owner} and i.status = 'done') as c_done,
       (select count(*) from plan_items i where i.project_id = p.id and i.owner = ${owner} and i.status = 'shelved') as c_shelved,
       (select count(*) from plan_items i where i.project_id = p.id and i.owner = ${owner} and i.status = 'failed') as c_failed,
@@ -456,7 +457,7 @@ export async function listPastProjects(sql: Sql, owner: string, limit: number): 
     kgiTitle: r.kgi_title == null ? null : String(r.kgi_title),
     kgiStatus: r.kgi_status == null ? null : String(r.kgi_status),
     counts: {
-      todo: n(r.c_todo), done: n(r.c_done), shelved: n(r.c_shelved),
+      todo: n(r.c_todo), doing: n(r.c_doing), done: n(r.c_done), shelved: n(r.c_shelved),
       failed: n(r.c_failed), succeeded: n(r.c_succeeded), adjusted: n(r.c_adjusted),
     },
   }));
@@ -597,4 +598,16 @@ export async function listItemEvents(sql: Sql, owner: string, projectId: string)
     where e.owner = ${owner} and i.owner = ${owner} and i.project_id = ${projectId} and e.event_id not like ${PENDING_LIKE}
   `;
   return rows.map((r: Row) => ({ itemId: String(r.item_id), start: String(r.start_time ?? ""), end: String(r.end_time ?? "") }));
+}
+
+// --- ToDo の判定 (EXP-034) ---
+
+/** 持ち主の ToDo で、今まだ「実行」(判定待ち) のときだけ判定の状態にする。入れられたら項目、合わなければ null。 */
+export async function judgeItem(sql: Sql, owner: string, id: string, status: "succeeded" | "failed" | "adjusted"): Promise<PlanItem | null> {
+  const rows = await sql`
+    update plan_items set status = ${status}, updated_at = now()
+    where id = ${id} and owner = ${owner} and level = 'todo' and status = 'done'
+    returning id, project_id, parent_id, level, title, target, due_date, status, created_at, updated_at
+  `;
+  return rows.length > 0 ? toItem(rows[0]) : null;
 }

@@ -11,8 +11,9 @@ import { ProjectPanel, useProjectWorkspace } from "./components/ProjectPanel";
 import { NotesPanel } from "./components/NotesPanel";
 import { PlanFields, usePlanStore } from "./components/PlanFields";
 import { PlanTree, useItems } from "./components/PlanTree";
-import { itemsAddedNotice } from "../lib/hierarchy-step";
+import { choiceButtons, itemsAddedNotice, parseCandidateList, type Candidate } from "../lib/hierarchy-step";
 import { hypothesisNotice } from "../lib/progress";
+import { completeMessage, judgedNotice } from "../lib/judgement";
 import { DailyView, useDaily } from "./components/DailyPanel";
 import { TodoScheduleView, useItemEvents } from "./components/TodoSchedule";
 import { eventLabel } from "../lib/todo-event";
@@ -137,6 +138,8 @@ function AppContent() {
   const [planUpdated, setPlanUpdated] = useState<string | null>(null);
   // AI の最後の質問への答えの候補 (EXP-023)。次に送るときに消す
   const [answerChoices, setAnswerChoices] = useState<string[]>([]);
+  // AI が出した次の段の候補 (EXP-035)。押すとそのまま階層に足す
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
   // 会話で SMART を決めて新しいプロジェクトを作るモード (EXP-018)。null なら通常
   const [setupDraft, setSetupDraft] = useState<SmartDraft | null>(null);
   const [creatingProject, setCreatingProject] = useState(false);
@@ -241,7 +244,7 @@ function AppContent() {
   };
 
   // via: 時間の入力画面から送ったときだけ "time_dialog" (EXP-006・サーバは種類だけを数える)
-  const handleSendMessage = async (text: string, via?: 'time_dialog') => {
+  const handleSendMessage = async (text: string, via?: 'time_dialog', pick?: Candidate) => {
     if (!text.trim() || isLoading || historyLoading) return;
     setTimeDialogOpen(false);
     // 送った時点のプロジェクトへ保存する (選んでいなければ保存しない)
@@ -256,6 +259,7 @@ function AppContent() {
     setChatProblem(null);
     setPlanUpdated(null);
     setAnswerChoices([]);
+    setCandidates([]);
     // 時間の入力画面を開くときはそちらへフォーカスを渡し、それ以外は入力欄へ戻す
     let dialogOpened = false;
     const returnFocus = () => {
@@ -313,7 +317,7 @@ function AppContent() {
         const response = await fetch('/api/coach', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ projectId: saveTo, message: userMessage.content, ...(via ? { via } : {}) }),
+          body: JSON.stringify({ projectId: saveTo, message: userMessage.content, ...(via ? { via } : {}), ...(pick ? { pick } : {}) }),
         });
         const body: unknown = await response.json().catch(() => null);
         if (chatProjectId.current !== saveTo) return;
@@ -338,6 +342,7 @@ function AppContent() {
         setMessages((prev) => [...prev, { role: 'assistant', content: stripTimeMarker(reply) }]);
         // 答えの候補 (EXP-023)。サーバで検査済みだが、画面でも同じ検査を通してからボタンにする
         setAnswerChoices(parseChoices((body as { choices?: unknown }).choices));
+        setCandidates(parseCandidateList((body as { candidates?: unknown }).candidates));
         const plan = parsePlanDraft((body as { plan?: unknown }).plan);
         if (plan) {
           setPlanUpdated(planChangeNotice(planStore.plan, plan));
@@ -347,6 +352,12 @@ function AppContent() {
         const added = itemsAddedNotice((body as { itemsAdded?: unknown }).itemsAdded);
         if (added) {
           setPlanUpdated(added);
+          void it.refresh();
+        }
+        // AI と決めた判定を ToDo に入れた (EXP-034)
+        const judgedMsg = judgedNotice((body as { judged?: unknown }).judged);
+        if (judgedMsg) {
+          setPlanUpdated(judgedMsg);
           void it.refresh();
         }
         // AI と立てた仮説をノートに残した (EXP-032)
@@ -698,16 +709,21 @@ function AppContent() {
            ))}
            </div>
            {/* AI が質問で終えたときは、答えの候補を先に出す (EXP-023)。無いときは次にすることの選択肢 */}
-           {messages.length > 0 && answerChoices.length > 0 && (
+           {messages.length > 0 && (candidates.length > 0 || answerChoices.length > 0) && (
              <AnswerChoices
-               choices={answerChoices}
+               // 次の段の候補 (EXP-035) を先に・押すと pick を付けて送り、サーバがそのまま足す
+               choices={choiceButtons(candidates, answerChoices)}
                busy={chatBusy}
-               onPick={(text) => { void handleSendMessage(text); setTimeout(() => inputRef.current?.focus(), 0); }}
+               onPick={(text) => {
+                 const c = candidates.find((x) => x.title === text);
+                 void handleSendMessage(c ? `『${c.title}』にします` : text, undefined, c);
+                 setTimeout(() => inputRef.current?.focus(), 0);
+               }}
                onWriteOwn={() => inputRef.current?.focus()}
              />
            )}
            {/* 会話がある時も、一番下に次にすることの選択肢を出す (送信中は押せない) */}
-           {!setupDraft && messages.length > 0 && answerChoices.length === 0 && (
+           {!setupDraft && messages.length > 0 && answerChoices.length === 0 && candidates.length === 0 && (
              <StartChoices
                message="次にすることを選べます。"
                choices={choices}
@@ -841,6 +857,11 @@ function AppContent() {
                       onUpdateItem={(id, p) => void it.update(id, p)}
                       onSave={(d) => void daily.save(daily.today, d)}
                       onAsk={(text) => { void handleSendMessage(text); setTimeout(() => inputRef.current?.focus(), 0); }}
+                      onComplete={(item) => {
+                        // 実行 (判定待ち) にしてから、会話で判定を頼む (EXP-034)
+                        void it.update(item.id, { status: 'done' }).then(() => handleSendMessage(completeMessage(item.title)));
+                        setTimeout(() => inputRef.current?.focus(), 0);
+                      }}
                       eventLabels={Object.fromEntries(itemEvents.events.map((e) => [e.itemId, eventLabel(e)]))}
                     />
                     <TodoScheduleView

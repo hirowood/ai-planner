@@ -10,9 +10,9 @@ const D1 = "1a2b3c4d-0000-4a6b-8c7d-0000000000c1";
 const T1 = "1a2b3c4d-0000-4a6b-8c7d-0000000000d1";
 
 const LEVEL_LABELS = ["KGI (ゴール)", "KPI (途中の指標)", "KDI (行動の目標)", "ToDo"];
-const STATUS_LABELS = ["未実行", "実行", "棚上げ", "失敗", "成功", "調整"];
+const STATUS_LABELS = ["未実行", "実行中", "実行", "棚上げ", "失敗", "成功", "調整"];
 const LABEL_OF: Record<ItemStatus, string> = {
-  todo: "未実行", done: "実行", shelved: "棚上げ", failed: "失敗", succeeded: "成功", adjusted: "調整",
+  todo: "未実行", doing: "実行中", done: "実行", shelved: "棚上げ", failed: "失敗", succeeded: "成功", adjusted: "調整",
 };
 
 function item(id: string, level: PlanItem["level"], parentId: string | null, status: ItemStatus, n: number): PlanItem {

@@ -230,7 +230,7 @@ describe("POST /api/items (EXP-017 L4)", () => {
     ["空のタイトル", { ...postBody, title: "" }],
     ["201 字のタイトル", { ...postBody, title: TITLE_CANARY + "a".repeat(201) }],
     ["知らない段", { ...postBody, level: "okr" }],
-    ["知らない状態", { ...postBody, status: "doing" }],
+    ["知らない状態", { ...postBody, status: "in_progress" }],
     ["kgi に親", { ...postBody, parentId: PARENT_ID }],
     ["kpi に親なし", { ...postBody, level: "kpi" }],
     ["実在しない日付", { ...postBody, dueDate: "2026-02-30" }],
@@ -294,7 +294,7 @@ describe("PATCH /api/items/[id] (EXP-017 L4)", () => {
     ["壊れた JSON", ITEM_ID, "{not json"],
     ["項目が 1 つも無い", ITEM_ID, {}],
     ["空のタイトル", ITEM_ID, { title: "" }],
-    ["知らない状態", ITEM_ID, { status: "doing" }],
+    ["知らない状態", ITEM_ID, { status: "in_progress" }],
     ["実在しない日付", ITEM_ID, { dueDate: "2026-13-01" }],
   ])("%s は 400 で DB を呼ばない (EXP-017 L4)", async (_label, id, body) => {
     signedInWithEmail();
