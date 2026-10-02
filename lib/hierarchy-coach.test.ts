@@ -15,6 +15,13 @@ const db = vi.hoisted(() => {
     const call = { strings: [...strings], values };
     state.calls.push(call);
     const q = text(call);
+    if (/update plan_items set status/.test(q)) {
+      // judgeItem: 値 = status, id, owner。今の状態が done のときだけ更新できる
+      const target = state.items.find((r) => r.id === values[1] && r.level === "todo" && r.status === "done");
+      if (!target) return [];
+      target.status = values[0];
+      return [{ ...target }];
+    }
     if (/insert into plan_items/.test(q)) {
       if (state.refuseInsert) return [];
       // values: owner, projectId, parentId, level, title, target, dueDate, status, ...
@@ -237,6 +244,67 @@ describe("POST /api/coach — 階層の次の段 (EXP-019 L3)", () => {
     const res = await POST(post());
     expect(res.status).toBe(500);
     expect(db.state.calls.filter((c) => /insert into notes/.test(db.text(c)))).toHaveLength(0);
+  });
+
+  describe("完了した ToDo の判定 (EXP-034 L3)", () => {
+    const TODO_ID = "00000000-0000-4000-8000-000000000010";
+    const OTHER_ID = "00000000-0000-4000-8000-000000000011";
+    const TITLE = "canary-todo-単語 30 個-5d1a";
+    const setup = () => {
+      db.state.items = [
+        row(KGI_ID, "kgi", null, KGI_CANARY),
+        row(KPI_ID, "kpi", KGI_ID, "模試 700"),
+        row("00000000-0000-4000-8000-000000000003", "kdi", KPI_ID, "単語"),
+        { ...row(OTHER_ID, "todo", "00000000-0000-4000-8000-000000000003", "古い完了"), due_date: todayJst(), status: "done", updated_at: "2026-10-01T00:00:00.000Z" },
+        { ...row(TODO_ID, "todo", "00000000-0000-4000-8000-000000000003", TITLE), due_date: todayJst(), status: "done", target: "30 個を言える", updated_at: "2026-10-02T09:00:00.000Z" },
+      ];
+    };
+
+    it("判定を待っている ToDo の節・候補の 3 つ・C → A → 次の Plan・items は足さない", async () => {
+      setup();
+      geminiState.reply = JSON.stringify({ reply: "どうでしたか？", plan: {}, choices: [], items: [{ title: "足してはいけない" }], judgement: "" });
+      const body = await (await POST(post("『x』を完了しました。判定をお願いします"))).json();
+      const p = geminiState.lastPrompt ?? "";
+      expect(p).toContain("### 判定を待っている ToDo (EXP-034)");
+      expect(p).toContain(`- ToDo: ${TITLE} / 判定基準: 30 個を言える`);
+      expect(p).toContain("「判定基準を満たした」「一部できた」「できなかった」");
+      expect(p).toContain("振り返り (C) → 調整の型 (A: KPI / 行動 / そのまま続ける) → 次の Plan");
+      expect(body.itemsAdded).toEqual([]);
+      expect(inserts()).toHaveLength(0);
+      expect(body.judged).toBeNull();
+      expect(perf.parsed().find((l) => l.route === "api/coach")).toMatchObject({ judgement_applied: false });
+    });
+
+    it("決まった判定は、一番新しく完了した ToDo にだけ入る (owner をパラメータで)", async () => {
+      setup();
+      geminiState.reply = JSON.stringify({ reply: "よくできました", plan: {}, choices: [], items: [], judgement: "succeeded" });
+      const body = await (await POST(post("判定基準を満たした"))).json();
+      expect(body.judged).toEqual({ title: TITLE, status: "succeeded" });
+      const ups = db.state.calls.filter((c) => /update plan_items set status/.test(db.text(c)));
+      expect(ups).toHaveLength(1);
+      expect(ups[0].values).toEqual(expect.arrayContaining(["succeeded", TODO_ID, EMAIL]));
+      expect(ups[0].values).not.toContain(OTHER_ID);
+      expect(db.text(ups[0])).toContain("status = 'done'");
+      expect(perf.parsed().find((l) => l.route === "api/coach")).toMatchObject({ judgement_applied: true });
+      const logs = perf.all.join(" ");
+      for (const c of [EMAIL, TITLE]) expect(logs).not.toContain(c);
+    });
+
+    it.each([["空", ""], ["知らない値", "done"], ["無い", undefined]])("判定が %s なら更新しない", async (_l, judgement) => {
+      setup();
+      geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [], judgement });
+      const body = await (await POST(post())).json();
+      expect(body.judged).toBeNull();
+      expect(db.state.calls.filter((c) => /update plan_items set status/.test(db.text(c)))).toHaveLength(0);
+    });
+
+    it("判定を待っている ToDo が無ければ、AI が判定を返しても何も更新しない", async () => {
+      geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [], judgement: "failed" });
+      const body = await (await POST(post())).json();
+      expect(body.judged).toBeNull();
+      expect(db.state.calls.filter((c) => /update plan_items set status/.test(db.text(c)))).toHaveLength(0);
+      expect(geminiState.lastPrompt ?? "").not.toContain("### 判定を待っている ToDo");
+    });
   });
 
   it("DB が作るのを断った (親が他人など) ものは itemsAdded に入れない", async () => {

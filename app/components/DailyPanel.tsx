@@ -16,6 +16,7 @@ import {
 import { STATUS_LABEL, STATUS_ORDER, type ItemPatch, type ItemStatus, type PlanItem } from '../../lib/plan-items';
 import { todayJst } from '../../lib/smart';
 import { TODO_PER_KDI as TODO_PER_KDI_DAY } from '../../lib/hierarchy-step';
+import { completeMessage } from '../../lib/judgement';
 
 /** 今日の ToDo を親の KDI ごとにまとめる (KDI の古い順・親の無いものは最後) (EXP-031)。 */
 export function groupByKdi(todos: PlanItem[], items: PlanItem[]): { key: string; label: string; todos: PlanItem[] }[] {
@@ -135,12 +136,46 @@ type ViewProps = {
   onUpdateItem(id: string, patch: ItemPatch): void;
   onSave(d: { mark: DailyMark; goods: string[]; tomorrow: string }): void;
   onAsk(text: string): void;
+  /** 「✓ 完了」: 実行にしてから会話へ判定を頼む (EXP-034)。 */
+  onComplete?(item: PlanItem): void;
   /** ToDo の id → 予定の印 (EXP-030)。 */
   eventLabels?: Record<string, string>;
 };
 
+/** ToDo の行の「▶ 始める」「✓ 完了」「判定待ち」(EXP-034)。 */
+function TodoAction({ item, onUpdateItem, onAsk, onComplete }: {
+  item: PlanItem;
+  onUpdateItem(id: string, patch: ItemPatch): void;
+  onAsk(text: string): void;
+  onComplete?(item: PlanItem): void;
+}) {
+  const small = `${buttonClass} shrink-0 px-2 py-1`;
+  if (item.status === 'todo') {
+    return (
+      <button type="button" aria-label={`『${item.title}』を始める`} onClick={() => onUpdateItem(item.id, { status: 'doing' })} className={`${small} bg-white text-blue-700 border-blue-300 hover:bg-blue-50`}>
+        <span aria-hidden="true">▶</span> 始める
+      </button>
+    );
+  }
+  if (item.status === 'doing') {
+    return (
+      <button type="button" aria-label={`『${item.title}』を完了にする`} onClick={() => (onComplete ? onComplete(item) : onUpdateItem(item.id, { status: 'done' }))} className={`${small} bg-blue-600 text-white border-blue-600 hover:bg-blue-700`}>
+        <span aria-hidden="true">✓</span> 完了
+      </button>
+    );
+  }
+  if (item.status === 'done') {
+    return (
+      <button type="button" aria-label={`『${item.title}』を AI と判定する (判定待ち)`} onClick={() => onAsk(completeMessage(item.title))} className={`${small} bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100`}>
+        判定待ち・AI と判定する
+      </button>
+    );
+  }
+  return null;
+}
+
 /** 画面だけ (状態は外から)。描画のテストはこれを使う。 */
-export function DailyView({ today, items, logs, problem, saving, saved, onUpdateItem, onSave, onAsk, eventLabels = {} }: ViewProps) {
+export function DailyView({ today, items, logs, problem, saving, saved, onUpdateItem, onSave, onAsk, onComplete, eventLabels = {} }: ViewProps) {
   const todayLog = logs.find((l) => l.day === today);
   const [draft, setDraft] = useState<Draft>(() => draftFrom(todayLog));
   const [loadedFor, setLoadedFor] = useState<string | null>(todayLog ? `${today}:${todayLog.updatedAt}` : null);
@@ -176,6 +211,7 @@ export function DailyView({ today, items, logs, problem, saving, saved, onUpdate
                     {eventLabels[t.id] && <span className="ml-2 text-green-800">{eventLabels[t.id]}</span>}
                     {t.target && <span className="block text-gray-600">判定基準: {t.target}</span>}
                   </span>
+                  <TodoAction item={t} onUpdateItem={onUpdateItem} onAsk={onAsk} onComplete={onComplete} />
                   <select
                     aria-label={`『${t.title}』の状態`}
                     value={t.status}

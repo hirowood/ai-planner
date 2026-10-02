@@ -13,6 +13,7 @@ import { PlanFields, usePlanStore } from "./components/PlanFields";
 import { PlanTree, useItems } from "./components/PlanTree";
 import { itemsAddedNotice } from "../lib/hierarchy-step";
 import { hypothesisNotice } from "../lib/progress";
+import { completeMessage, judgedNotice } from "../lib/judgement";
 import { DailyView, useDaily } from "./components/DailyPanel";
 import { TodoScheduleView, useItemEvents } from "./components/TodoSchedule";
 import { eventLabel } from "../lib/todo-event";
@@ -347,6 +348,12 @@ function AppContent() {
         const added = itemsAddedNotice((body as { itemsAdded?: unknown }).itemsAdded);
         if (added) {
           setPlanUpdated(added);
+          void it.refresh();
+        }
+        // AI と決めた判定を ToDo に入れた (EXP-034)
+        const judgedMsg = judgedNotice((body as { judged?: unknown }).judged);
+        if (judgedMsg) {
+          setPlanUpdated(judgedMsg);
           void it.refresh();
         }
         // AI と立てた仮説をノートに残した (EXP-032)
@@ -841,6 +848,11 @@ function AppContent() {
                       onUpdateItem={(id, p) => void it.update(id, p)}
                       onSave={(d) => void daily.save(daily.today, d)}
                       onAsk={(text) => { void handleSendMessage(text); setTimeout(() => inputRef.current?.focus(), 0); }}
+                      onComplete={(item) => {
+                        // 実行 (判定待ち) にしてから、会話で判定を頼む (EXP-034)
+                        void it.update(item.id, { status: 'done' }).then(() => handleSendMessage(completeMessage(item.title)));
+                        setTimeout(() => inputRef.current?.focus(), 0);
+                      }}
                       eventLabels={Object.fromEntries(itemEvents.events.map((e) => [e.itemId, eventLabel(e)]))}
                     />
                     <TodoScheduleView
