@@ -39,11 +39,36 @@ describe("「☀️ 今日」のタブ (EXP-020 L5)", () => {
     expect(html).toContain(ASK_TODAY_TODOS);
     expect(html).not.toContain("『単語 1』の状態");
   });
-  it("今日の ToDo が 4 つなら状態の選択と「3 つに絞ると」", () => {
-    const html = render([todo(1), todo(2), todo(3), todo(4)]);
+  it("目安は 1 日 9 つほど: 10 で案内・9 では出さない・9 未満なら会話に送るボタン (EXP-031 L4 が EXP-020 の 3 つを置き換え)", () => {
+    const ten = Array.from({ length: 10 }, (_, i) => todo(i + 1));
+    const html = render(ten);
     expect(html).toContain("『単語 1』の状態");
-    expect(html).toContain("3 つに絞ると回しやすいです");
-    expect(render([todo(1), todo(2), todo(3)])).not.toContain("3 つに絞ると");
+    expect(html).toContain("9 つほどに絞ると回しやすいです");
+    expect(html).not.toContain(ASK_TODAY_TODOS);
+    expect(render(ten.slice(0, 9))).not.toContain("に絞ると");
+    expect(render(ten.slice(0, 4))).toContain(ASK_TODAY_TODOS);
+    expect(render(ten.slice(0, 4))).toContain("目安: KDI ごとに 3 つ・1 日 9 つほど (今 4 つ)");
+    expect(ASK_TODAY_TODOS).toBe("今日の ToDo を KDI ごとに 3 つずつ決めたい");
+  });
+  it("今日の ToDo を KDI ごとにまとめ、判定基準を出す (EXP-031 L4)", () => {
+    const kdi = (n: number, title: string): PlanItem => ({
+      id: `bbbbbbbb-0000-4000-8000-00000000000${n}`, projectId: P, parentId: null, level: "kdi", title, target: "", dueDate: "",
+      status: "todo", createdAt: `2026-09-30T00:00:0${n}Z`, updatedAt: "",
+    });
+    const a = kdi(1, "単語 毎日 30 分");
+    const b = kdi(2, "文法");
+    const t1 = { ...todo(1), parentId: b.id, title: "文法 p.10" };
+    const t2 = { ...todo(2), parentId: a.id, title: "単語 1〜30", target: "30 個を言える" };
+    const html = render([a, b, t1, t2]);
+    // KDI の古い順 (a → b) に見出し・その下に ToDo
+    const ia = html.indexOf("KDI: 単語 毎日 30 分");
+    const ib = html.indexOf("KDI: 文法");
+    expect(ia).toBeGreaterThan(-1);
+    expect(ib).toBeGreaterThan(ia);
+    expect(html.indexOf("単語 1〜30")).toBeGreaterThan(ia);
+    expect(html.indexOf("単語 1〜30")).toBeLessThan(ib);
+    expect(html).toContain("判定基準: 30 個を言える");
+    expect(html).toMatch(/<h4[^>]*>KDI: 単語 毎日 30 分<\/h4>/);
   });
   it("今日の記録があれば入れておき「上書き」・保存後は AI にひとこと", () => {
     const log: DailyLog = { projectId: P, day: TODAY, mark: "fair", goods: ["早起き"], tomorrow: "10 分早く", updatedAt: "u" };

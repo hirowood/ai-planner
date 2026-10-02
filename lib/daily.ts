@@ -28,8 +28,8 @@ export const TOMORROW_CHARS = 200;
 export const BACKFILL_DAYS = 7;
 /** 一覧と AI に渡す日数。 */
 export const DAILY_LIMIT = 7;
-/** 今日の ToDo の目安 (鬼速PDCA の 1 日 3 つ)。 */
-export const TODAY_TODO_TARGET = 3;
+/** 今日の ToDo の目安 (KDI 3 つ × KDI ごとに 3 つ = 1 日 9 つほど・本人・EXP-031)。 */
+export const TODAY_TODO_TARGET = 9;
 
 const YMD_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const len = (s: string) => [...s].length;

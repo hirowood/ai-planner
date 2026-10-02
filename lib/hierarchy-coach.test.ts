@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { authState } from "../test/mocks/next-auth";
 import { geminiState } from "../test/mocks/generative-ai";
 import { capturePerf } from "../test/mocks/fetch";
+import { todayJst } from "./smart";
 
 // /api/coach が階層を読み、次の段の候補を聞き、決まった項目を次の段の親の下に足す (EXP-019 L3)
 const db = vi.hoisted(() => {
@@ -117,6 +118,8 @@ describe("POST /api/coach — 階層の次の段 (EXP-019 L3)", () => {
     geminiState.reply = JSON.stringify({ reply: "ok", plan: {}, choices: [], items: [{ title: "週 3 回 単語 30 分" }] });
     const body = await (await POST(post())).json();
     expect(body.itemsAdded).toEqual([{ level: "kdi", title: "週 3 回 単語 30 分" }]);
+    // KDI の段の決め方 (EXP-031): 全部で 3 つほど・判定基準
+    expect(geminiState.lastPrompt ?? "").toContain("全部で 3 つほど決めます。判定基準 (何をもって達成か)");
     expect(inserts()[0].values).toContain(KPI_ID);
     expect(inserts()[0].values).toContain("kdi");
   });
@@ -136,6 +139,31 @@ describe("POST /api/coach — 階層の次の段 (EXP-019 L3)", () => {
     expect(body.itemsAdded).toEqual([]);
     expect(inserts()).toHaveLength(0);
     expect(geminiState.lastPrompt ?? "").toContain("「新しいプロジェクト」から SMART で KGI を作ることを勧めてください");
+  });
+
+  it("KDI が 3 つそろうと今日の ToDo の段: プロンプトに目安と判定基準・今日の期日で最初の KDI の下に作る (EXP-031 L3)", async () => {
+    const KDI_A = "00000000-0000-4000-8000-000000000003";
+    db.state.items = [
+      row(KGI_ID, "kgi", null, KGI_CANARY),
+      row(KPI_ID, "kpi", KGI_ID, "模試 700"),
+      row(KDI_A, "kdi", KPI_ID, "単語 毎日 30 分"),
+      row("00000000-0000-4000-8000-000000000004", "kdi", KPI_ID, "文法"),
+      row("00000000-0000-4000-8000-000000000005", "kdi", KPI_ID, "リスニング"),
+    ];
+    geminiState.reply = JSON.stringify({
+      reply: "ok", plan: {}, choices: [],
+      items: [{ title: "単語 1〜30", target: "30 個を言える" }, { title: "明日の分", dueDate: "2999-01-01" }],
+    });
+    const body = await (await POST(post())).json();
+    const p = geminiState.lastPrompt ?? "";
+    expect(p).toContain("今日 3 つほど (1 日 9 つほど)");
+    expect(p).toContain("判定基準 (何をもって達成か)");
+    expect(p).toContain(`次に決める段: 今日 (${todayJst()}) の ToDo`);
+    expect(p).toContain("この KDI の今日の ToDo は今 0 つです。あと 3 つまで足せます。");
+    expect(body.itemsAdded).toEqual([{ level: "todo", title: "単語 1〜30" }]);
+    const ins = inserts();
+    expect(ins).toHaveLength(1);
+    expect(ins[0].values).toEqual(expect.arrayContaining([KDI_A, "todo", todayJst(), "30 個を言える"]));
   });
 
   it("DB が作るのを断った (親が他人など) ものは itemsAdded に入れない", async () => {

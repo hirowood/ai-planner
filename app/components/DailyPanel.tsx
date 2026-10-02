@@ -15,11 +15,26 @@ import {
 } from '../../lib/daily';
 import { STATUS_LABEL, STATUS_ORDER, type ItemPatch, type ItemStatus, type PlanItem } from '../../lib/plan-items';
 import { todayJst } from '../../lib/smart';
+import { TODO_PER_KDI as TODO_PER_KDI_DAY } from '../../lib/hierarchy-step';
+
+/** 今日の ToDo を親の KDI ごとにまとめる (KDI の古い順・親の無いものは最後) (EXP-031)。 */
+export function groupByKdi(todos: PlanItem[], items: PlanItem[]): { key: string; label: string; todos: PlanItem[] }[] {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const out = new Map<string, { key: string; label: string; todos: PlanItem[]; order: string }>();
+  for (const t of todos) {
+    const kdi = t.parentId ? byId.get(t.parentId) : undefined;
+    const key = kdi ? kdi.id : 'none';
+    const g = out.get(key) ?? { key, label: kdi ? `KDI: ${kdi.title}` : 'KDI なし', todos: [], order: kdi ? kdi.createdAt : '\uffff' };
+    g.todos.push(t);
+    out.set(key, g);
+  }
+  return [...out.values()].sort((a, b) => (a.order < b.order ? -1 : a.order > b.order ? 1 : 0)).map(({ key, label, todos }) => ({ key, label, todos }));
+}
 
 // --- 「☀️ 今日」のタブ (EXP-020) ---
 // 朝: 今日が期日の ToDo を見る / 夜: 〇△×・良かったこと 3 つ・明日はこうする を書く。
 
-export const ASK_TODAY_TODOS = '今日の ToDo を 3 つ決めたい';
+export const ASK_TODAY_TODOS = '今日の ToDo を KDI ごとに 3 つずつ決めたい';
 export const ASK_COMMENT = '今日の振り返りを記録しました。ひとことください';
 
 type Draft = { mark: DailyMark | null; goods: string[]; tomorrow: string };
@@ -134,6 +149,7 @@ export function DailyView({ today, items, logs, problem, saving, saved, onUpdate
   }
 
   const todos = todayTodos(items, today);
+  const groups = groupByKdi(todos, items);
   const others = logs.filter((l) => l.day !== today);
 
   return (
@@ -142,37 +158,43 @@ export function DailyView({ today, items, logs, problem, saving, saved, onUpdate
         <h3 id="today-todos-heading" className="text-base font-bold text-gray-800">
           <span aria-hidden="true">☀️</span> 今日の ToDo ({today})
         </h3>
-        {todos.length === 0 ? (
-          <div className="flex flex-col gap-2">
-            <p className="text-sm text-gray-700">今日が期日の ToDo はまだありません。会話で KDI から今日の ToDo を決めましょう。</p>
-            <button type="button" onClick={() => onAsk(ASK_TODAY_TODOS)} className={`${buttonClass} self-start bg-white text-blue-700 border-blue-300 hover:bg-blue-50`}>
-              {ASK_TODAY_TODOS}
-            </button>
+        <p className="text-sm text-gray-600">目安: KDI ごとに {TODO_PER_KDI_DAY} つ・1 日 {TODAY_TODO_TARGET} つほど (今 {todos.length} つ)</p>
+        {todos.length === 0 && (
+          <p className="text-sm text-gray-700">今日が期日の ToDo はまだありません。会話で KDI から今日の ToDo を決めましょう。</p>
+        )}
+        {groups.map((g) => (
+          <div key={g.key} className="flex flex-col gap-2">
+            <h4 className="text-sm font-bold text-gray-700">{g.label}</h4>
+            <ul className="flex flex-col gap-2">
+              {g.todos.map((t) => (
+                <li key={t.id} className="flex items-center gap-2">
+                  <span className="flex-1 text-sm text-gray-900">
+                    {t.title}
+                    {eventLabels[t.id] && <span className="ml-2 text-green-800">{eventLabels[t.id]}</span>}
+                    {t.target && <span className="block text-gray-600">判定基準: {t.target}</span>}
+                  </span>
+                  <select
+                    aria-label={`『${t.title}』の状態`}
+                    value={t.status}
+                    onChange={(e) => onUpdateItem(t.id, { status: e.target.value as ItemStatus })}
+                    className={`${inputClass} w-auto`}
+                  >
+                    {STATUS_ORDER.map((s) => (
+                      <option key={s} value={s}>{STATUS_LABEL[s]}</option>
+                    ))}
+                  </select>
+                </li>
+              ))}
+            </ul>
           </div>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {todos.map((t) => (
-              <li key={t.id} className="flex items-center gap-2">
-                <span className="flex-1 text-sm text-gray-900">
-                  {t.title}
-                  {eventLabels[t.id] && <span className="ml-2 text-green-800">{eventLabels[t.id]}</span>}
-                </span>
-                <select
-                  aria-label={`『${t.title}』の状態`}
-                  value={t.status}
-                  onChange={(e) => onUpdateItem(t.id, { status: e.target.value as ItemStatus })}
-                  className={`${inputClass} w-auto`}
-                >
-                  {STATUS_ORDER.map((s) => (
-                    <option key={s} value={s}>{STATUS_LABEL[s]}</option>
-                  ))}
-                </select>
-              </li>
-            ))}
-          </ul>
+        ))}
+        {todos.length < TODAY_TODO_TARGET && (
+          <button type="button" onClick={() => onAsk(ASK_TODAY_TODOS)} className={`${buttonClass} self-start bg-white text-blue-700 border-blue-300 hover:bg-blue-50`}>
+            {ASK_TODAY_TODOS}
+          </button>
         )}
         {todos.length > TODAY_TODO_TARGET && (
-          <p className="text-sm text-amber-900">今日の ToDo が {todos.length} つあります。3 つに絞ると回しやすいです。</p>
+          <p className="text-sm text-amber-900">今日の ToDo が {todos.length} つあります。{TODAY_TODO_TARGET} つほどに絞ると回しやすいです。</p>
         )}
       </section>
 

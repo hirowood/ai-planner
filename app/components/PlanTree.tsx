@@ -131,7 +131,7 @@ export function PlanTree({ items, lastParentId, onCreate, onUpdate, onDelete, on
       status: 'todo',
     });
     if (!parsed) {
-      setInvalid('タイトルは1〜200字、目標値は200字まで、期日は正しい日付で入力してください。');
+      setInvalid('タイトルは1〜200字、目標値・判定基準は200字まで、期日は正しい日付で入力してください。');
       return;
     }
     setInvalid(null);
@@ -403,7 +403,7 @@ export function PlanTree({ items, lastParentId, onCreate, onUpdate, onDelete, on
         </label>
 
         <label className="flex flex-col gap-1 text-sm text-gray-700">
-          目標値
+          目標値・判定基準
           <input
             type="text"
             name="item-target"
